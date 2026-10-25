@@ -13,6 +13,7 @@ import kotlin.math.min
  *   lists, blockquotes, indented code, inline code, links, images, reference links, autolinks, inline/block HTML.
  * - GitHub Flavored Markdown (GFM): fenced code blocks (``` and ~~~), tables with column alignment,
  *   strikethrough (~one~ and ~~two~~), bare URL & email autolinks, task lists (- [ ] / - [x]),
+ *   extended task markers ([-] cancelled, [~] in progress, [*] starred, [+] added),
  *   alerts (> [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]), and inline code color swatches
  *   (`#0969da`, `rgb(9, 105, 218)`, `hsl(212, 92%, 45%)`), plus optional newline-as-<br>.
  * - Markdown Extra: definition lists (term / : definition), footnotes ([^id]), abbreviations (*[ABBR]: text),
@@ -86,6 +87,11 @@ dd{margin:0 0 .5em 1.5em}
 .color-swatch{display:inline-block;width:.75em;height:.75em;margin-left:.4em;border:1px solid var(--line);border-radius:50%;vertical-align:-.05em}
 .markdown-alert{margin:0 0 1em;padding:.5em 1em;border-left:.25em solid var(--alert)}
 .markdown-alert>:last-child{margin-bottom:0}
+.task{display:inline-block;width:.9em;height:.9em;margin:0 .2em 0 .1em;border:1px solid var(--muted);border-radius:3px;vertical-align:-.1em;font-size:1em;line-height:.8em;text-align:center;font-weight:700}
+.task-cancelled{color:var(--muted)}.task-cancelled::before{content:"\2013"}
+.task-progress{background:linear-gradient(90deg,var(--link) 50%,transparent 50%)}
+.task-starred{color:#d29922;border-color:#d29922}.task-starred::before{content:"\2605"}
+.task-added{color:#3fb950;border-color:#3fb950}.task-added::before{content:"+"}
 .markdown-alert-title{margin:0 0 .25em;font-weight:600;color:var(--alert)}
 </style>
 </head>
@@ -126,7 +132,7 @@ $body</main>
     private val QUOTE_START = Pattern.compile("^ {0,3}>")
     private val QUOTE_LINE = Pattern.compile("^ {0,3}> ?(.*)$")
     private val ALERT_LINE = Pattern.compile("^[ \\t]*\\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\\][ \\t]*$", Pattern.CASE_INSENSITIVE)
-    private val TASK_ITEM = Pattern.compile("^\\[([ xX])\\][ \\t]+")
+    private val TASK_ITEM = Pattern.compile("^\\[([ xX~*+-])\\][ \\t]+")
 
     private val HTML_BLOCK_START = Pattern.compile("^ {0,3}<(?:(!--)|(/?)($TAGS)(?=[\\s/>]|$))", Pattern.CASE_INSENSITIVE)
     private val CUSTOM_TAG_LINE = Pattern.compile("^ {0,3}</?[A-Za-z][A-Za-z0-9-]*(?:\\s[^<>]*)?>[ \\t]*$")
@@ -538,7 +544,14 @@ $body</main>
                 if (it.isNotEmpty()) {
                     val tm = TASK_ITEM.matcher(it[0])
                     if (tm.find()) {
-                        task = "<input type=\"checkbox\" disabled" + (if (tm.group(1) == " ") "" else " checked") + " /> "
+                        task = when (tm.group(1)) {
+                            " " -> "<input type=\"checkbox\" disabled /> "
+                            "x", "X" -> "<input type=\"checkbox\" disabled checked /> "
+                            "-" -> "<span class=\"task task-cancelled\" title=\"Cancelled\"></span> "
+                            "~" -> "<span class=\"task task-progress\" title=\"In progress\"></span> "
+                            "*" -> "<span class=\"task task-starred\" title=\"Starred\"></span> "
+                            else -> "<span class=\"task task-added\" title=\"Added\"></span> "
+                        }
                         it[0] = it[0].substring(tm.end())
                     }
                 }
