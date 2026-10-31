@@ -1,5 +1,8 @@
 package x.vladgba.files
 
+import x.vladgba.files.pui.PAboutInfo
+import x.vladgba.files.pui.showPAbout
+
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.SharedPreferences
@@ -79,7 +82,7 @@ class MainActivity : Activity(), Panel.Host {
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
-        prefs = getSharedPreferences("unifx", MODE_PRIVATE)
+        prefs = getSharedPreferences("pfiles", MODE_PRIVATE)
         sortMode = prefs.getInt("sort", SORT_NAME)
         sortDesc = prefs.getBoolean("desc", false)
         showHidden = prefs.getBoolean("hidden", false)
@@ -253,6 +256,7 @@ class MainActivity : Activity(), Panel.Host {
                 barIcon(R.drawable.ic_storage, R.string.storage) { showStorageMenu(it) },
                 barIcon(R.drawable.ic_refresh, R.string.refresh) { onMenuItem(M_REFRESH) },
                 pasteButton,
+                barIcon(R.drawable.p_ic_info, R.string.about) { showPAbout(PAboutInfo(repo = "pFiles")) },
             ).forEach { addView(it, LinearLayout.LayoutParams(0, dp(48), 1f)) }
         }
         // Selection actions replace the normal icons while items are selected (no top action bar).

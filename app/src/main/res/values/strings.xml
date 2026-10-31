@@ -219,4 +219,5 @@
     <string name="open_in_markdown">Open in Markdown viewer</string>
     <string name="md_breaks">Hard line breaks</string>
     <string name="md_anchors">Heading anchors</string>
+    <string name="about">About</string>
 </resources>
