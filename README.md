@@ -1,6 +1,6 @@
 # UniFX
 
-A small, modular file manager for Android, with a built-in code editor, read-only text viewer and hex editor.
+A small file manager for Android, with a built-in code editor, read-only text viewer and hex editor.
 
 UniFX has **zero library dependencies**. It uses only the Android framework and the Kotlin standard library: no AndroidX, no support libraries, no image assets. All screens are built in code and all icons are vector drawables, so the release APK is measured in kilobytes.
 
