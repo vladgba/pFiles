@@ -124,6 +124,33 @@ class MarkdownOpsTest {
     }
 
     @Test
+    fun extendedTaskMarkers() {
+        val md = """
+            - [-] Cancelled
+            - [~] In progress
+            - [*] Starred
+            - [+] Added
+            - [a] Not a task
+
+            1. [~] Ordered progress
+
+            * [+] Loose added
+
+            * [-] Loose cancelled
+        """.trimIndent()
+        val html = MarkdownOps.text(md)
+        assertTrue(html.contains("<li><span class=\"task task-cancelled\" title=\"Cancelled\"></span> Cancelled</li>"))
+        assertTrue(html.contains("<li><span class=\"task task-progress\" title=\"In progress\"></span> In progress</li>"))
+        assertTrue(html.contains("<li><span class=\"task task-starred\" title=\"Starred\"></span> Starred</li>"))
+        assertTrue(html.contains("<li><span class=\"task task-added\" title=\"Added\"></span> Added</li>"))
+        assertTrue(html.contains("<li>[a] Not a task</li>"))
+        assertTrue(html.contains("<ol>\n<li><span class=\"task task-progress\" title=\"In progress\"></span> Ordered progress</li>"))
+        assertTrue(html.contains("<li><p><span class=\"task task-added\" title=\"Added\"></span> Loose added</p></li>"))
+        assertTrue(html.contains("<li><p><span class=\"task task-cancelled\" title=\"Cancelled\"></span> Loose cancelled</p></li>"))
+        assertTrue(MarkdownOps.renderPage("- [*] x", "t.md").contains(".task-starred"))
+    }
+
+    @Test
     fun inlineCodeColorSwatches() {
         val md = "Colors: `#0969da`, `rgb(9, 105, 218)`, `hsl(212, 92%, 45%)`, `not-a-color`."
         val html = MarkdownOps.text(md)

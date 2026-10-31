@@ -15,6 +15,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -540,6 +541,46 @@ class EditorActivity : Activity() {
             dirty -> Ui.confirmUnsaved(this, file.name, { save { finish() } }, { finish() })
             else -> super.onBackPressed()
         }
+    }
+
+    // ---------------------------------------------------------------- hardware keyboard shortcuts
+
+    /** Ctrl+S/Z/Y/F/G/+/- and F3/Esc. Intercepted before the focused EditText, whose own Ctrl+Z would bypass [History]. */
+    override fun dispatchKeyEvent(e: KeyEvent): Boolean {
+        if (e.action == KeyEvent.ACTION_DOWN && ::edit.isInitialized && shortcut(e)) return true
+        return super.dispatchKeyEvent(e)
+    }
+
+    private fun shortcut(e: KeyEvent): Boolean {
+        val k = e.keyCode
+        val findOpen = findBar.visibility == View.VISIBLE
+        if (!e.isCtrlPressed && !e.isAltPressed && !e.isMetaPressed) {
+            when {
+                k == KeyEvent.KEYCODE_F3 && findOpen -> find(!e.isShiftPressed)
+                k == KeyEvent.KEYCODE_ESCAPE && findOpen -> { findBar.visibility = View.GONE; edit.requestFocus() }
+                else -> return false
+            }
+            return true
+        }
+        if (!e.isCtrlPressed || e.isAltPressed || e.isMetaPressed) return false
+        // Ctrl+C/X/V/A and anything unmapped fall through to the EditText.
+        val id = when (k) {
+            KeyEvent.KEYCODE_S -> M_SAVE
+            KeyEvent.KEYCODE_Z -> if (e.isShiftPressed) M_REDO else M_UNDO
+            KeyEvent.KEYCODE_Y -> M_REDO
+            KeyEvent.KEYCODE_F -> M_FIND
+            KeyEvent.KEYCODE_G, KeyEvent.KEYCODE_L -> M_GOTO
+            KeyEvent.KEYCODE_EQUALS, KeyEvent.KEYCODE_PLUS, KeyEvent.KEYCODE_NUMPAD_ADD -> M_BIGGER
+            KeyEvent.KEYCODE_MINUS, KeyEvent.KEYCODE_NUMPAD_SUBTRACT -> M_SMALLER
+            else -> return false
+        }
+        // In the find/replace fields, undo/redo belong to that field.
+        if ((id == M_UNDO || id == M_REDO) && !edit.hasFocus()) return false
+        // Consume the key even when the action is unavailable, so the EditText's own undo never kicks in.
+        if (id == M_SAVE && !dirty) return true
+        if (e.repeatCount > 0 && id != M_UNDO && id != M_REDO && id != M_BIGGER && id != M_SMALLER) return true
+        onAction(id, edit)
+        return true
     }
 
     override fun onDestroy() {
