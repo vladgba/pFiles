@@ -29,7 +29,7 @@ import java.io.IOException
  *    made read-only so it opens in the viewer.
  *
  * Paths inside this app's private data directory are never opened from outside, so another app can't use
- * UniFX to read or rewrite its private files.
+ * pFiles to read or rewrite its private files.
  */
 class OpenActivity : Activity() {
     private val ui = Handler(Looper.getMainLooper())
