@@ -1,8 +1,8 @@
-# UniFX
+# pFiles
 
 A small file manager for Android, with a built-in code editor, read-only text viewer and hex editor.
 
-UniFX has **zero library dependencies**. It uses only the Android framework and the Kotlin standard library: no AndroidX, no support libraries, no image assets. All screens are built in code and all icons are vector drawables, so the release APK is measured in kilobytes.
+pFiles has **zero library dependencies**. It uses only the Android framework and the Kotlin standard library: no AndroidX, no support libraries, no image assets. All screens are built in code and all icons are vector drawables, so the release APK is measured in kilobytes.
 
 - Package: `x.vladgba.files`
 - Android 5.0+ (API 21), targets API 35
@@ -12,6 +12,8 @@ UniFX has **zero library dependencies**. It uses only the Android framework and 
 
 ### File browser
 - List and grid views, switchable from the menu
+- Two panels, Total Commander style (bottom bar → Two panels): side by side in landscape, stacked in portrait. Each panel keeps its own folder, breadcrumb and selection; the one you touched last is active (accent line under its path) and the bottom bar acts on it
+- Drag & drop: long-press an item (or a selection), then move your finger. Drop it on a folder to put it there, or anywhere else in a panel to put it in that panel's folder, then choose Copy or Move. The list scrolls when you hold near its top or bottom edge. With two panels, ⋮ also has Copy / Move to other panel
 - Clickable breadcrumb path bar; Back goes up one folder until you reach a storage root
 - Sort by name, size, date or type, ascending or descending; folders always come first
 - Show/hide hidden files, and filter the current folder by name
@@ -48,11 +50,11 @@ Used automatically for files over 1 MB, binary files and files you can't write t
 - Status bar with the value under the cursor as u8/i8, binary, u16/i16 and u32/i32 (little-endian)
 
 ### Opening files from other apps
-UniFX appears in other apps' *Open with* and *Share* lists as **UniFX Editor** (text-like files) and **UniFX Hex** (any file). It handles `ACTION_VIEW`, `ACTION_EDIT` and `ACTION_SEND`.
+pFiles appears in other apps' *Open with* and *Share* lists as **pFiles Editor** (text-like files) and **pFiles Hex** (any file). It handles `ACTION_VIEW`, `ACTION_EDIT` and `ACTION_SEND`.
 - If the link resolves to a real file (a `file://` path, the system storage and Downloads providers, or a provider that exposes the file path), that file is opened directly
 - Otherwise the content is copied into the app cache and the copy is opened. If the sending app granted write access, every save is also written back to the original; otherwise the copy is read-only and opens in the viewer
 - Shared plain text (no file attached) opens as a read-only text copy
-- Paths inside UniFX's own private data folder are never opened this way
+- Paths inside pFiles's own private data folder are never opened this way
 - Copies older than a day are cleaned up automatically
 
 ## Building
@@ -71,7 +73,7 @@ Release builds use R8 with resource shrinking, and the Kotlin compiler's runtime
 
 ## Permissions
 
-| Android version | What UniFX asks for |
+| Android version | What pFiles asks for |
 | --- | --- |
 | 11+ (API 30+) | "All files access" (`MANAGE_EXTERNAL_STORAGE`), granted from a banner that opens the system settings page |
 | 6–10 (API 23–29) | `READ_EXTERNAL_STORAGE` / `WRITE_EXTERNAL_STORAGE` at runtime |

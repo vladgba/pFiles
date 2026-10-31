@@ -473,7 +473,7 @@ class ViewerActivity : Activity() {
         if (query == null || hit < info.start || hit >= info.end) return
         val from = charIndex(offs, (hit - info.start).toInt())
         val to = min(sb.length, from + query.length)
-        if (from < to) sb.setSpan(BackgroundColorSpan(0x66F0B429), from, to, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (from < to) sb.setSpan(BackgroundColorSpan(0x668B5CF6), from, to, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 
     private fun clearTextCache() {
@@ -668,7 +668,7 @@ class ViewerActivity : Activity() {
     private var selStart = 0L
     private var selEnd = 0L
     private var selMode: ActionMode? = null
-    private val selPaint = Paint().apply { color = 0x664A90E2 }
+    private val selPaint = Paint().apply { color = 0x668B5CF6 }
     private lateinit var startHandle: Handle
     private lateinit var endHandle: Handle
     private var downX = 0f
@@ -820,7 +820,7 @@ class ViewerActivity : Activity() {
 
     /** Teardrop selection handle; its tip sits at the bottom of the selected line. */
     private inner class Handle(ctx: Context, val isStart: Boolean) : View(ctx) {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF4A90E2.toInt() }
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF8B5CF6.toInt() }
         private val r = Ui.dp(ctx, 11).toFloat()
         private val stem = Ui.dp(ctx, 5).toFloat()
         val widthPx get() = (r * 2).toInt()

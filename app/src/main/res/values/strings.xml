@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">UniFX</string>
-    <string name="open_as_text">UniFX Editor</string>
-    <string name="open_as_hex">UniFX Hex</string>
+    <string name="open_as_text">pFiles Editor</string>
+    <string name="open_as_hex">pFiles Hex</string>
     <string name="internal">Internal storage</string>
     <string name="sd_card">SD card</string>
     <string name="app_files">App files</string>
     <string name="root">Root /</string>
-    <string name="grant_access">UniFX needs storage access to show your files. Tap to grant.</string>
+    <string name="grant_access">pFiles needs storage access to show your files. Tap to grant.</string>
     <string name="empty">Empty folder</string>
     <string name="cannot_read">Can\'t read this folder</string>
     <string name="search">Search</string>
@@ -41,6 +40,12 @@
     <string name="view_grid">Grid view</string>
     <string name="view_list">List view</string>
     <string name="other_app">Other app…</string>
+    <string name="two_panels">Two panels</string>
+    <string name="move">Move</string>
+    <string name="drop_to">To %s</string>
+    <string name="copy_to_other">Copy to other panel</string>
+    <string name="move_to_other">Move to other panel</string>
+    <string name="same_folder">Both panels show the same folder</string>
 
     <!-- Editors (shared) -->
     <string name="text_editor">Text editor</string>
@@ -206,7 +211,7 @@
     <string name="zip_empty">Empty archive</string>
     <string name="zip_extracting">Extracting…</string>
     <string name="install">Install</string>
-    <string name="install_permission_prompt">Allow UniFX to install apps</string>
+    <string name="install_permission_prompt">Allow pFiles to install apps</string>
     <string name="saving">Saving…</string>
 
     <!-- Markdown viewer -->

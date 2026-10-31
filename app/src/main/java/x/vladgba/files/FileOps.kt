@@ -72,10 +72,22 @@ object FileOps {
 
     private fun canon(f: File): String = try { f.canonicalPath } catch (e: IOException) { f.absolutePath }
 
+    /** Same folder once symlinks are resolved (/sdcard and /storage/emulated/0 are one place). */
+    fun sameDir(a: File, b: File): Boolean = canon(a) == canon(b)
+
+    enum class DropCheck { OK, NOTHING_TO_DO, INTO_ITSELF }
+
+    /** Whether dropping [files] into [dest] makes sense: not back into their own folder, not a folder into itself. */
+    fun checkDrop(files: List<File>, dest: File): DropCheck = when {
+        files.isEmpty() || files.all { f -> f.parentFile?.let { sameDir(it, dest) } == true } -> DropCheck.NOTHING_TO_DO
+        files.any { isInside(dest, it) } -> DropCheck.INTO_ITSELF
+        else -> DropCheck.OK
+    }
+
     /** True if [dir] is [f] itself or lies inside it, resolving symlinks (/sdcard vs /storage/emulated/0). */
     fun isInside(dir: File, f: File): Boolean {
         if (!f.isDirectory) return false
-        return (canon(dir) + "/").startsWith(canon(f) + "/")
+        return (canon(dir) + File.separator).startsWith(canon(f) + File.separator)
     }
 
     /** lstat-based, so it also sees symlinks whose target is missing (File.exists() follows the link). */

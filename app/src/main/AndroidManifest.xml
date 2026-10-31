@@ -41,7 +41,8 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@drawable/ic_launcher"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:requestLegacyExternalStorage="true"
         android:supportsRtl="true"
@@ -101,7 +102,7 @@
             android:noHistory="true"
             android:theme="@style/AppTheme.Translucent" />
 
-        <!-- "UniFX Editor" in other apps' Open with / Share lists: text-like files. -->
+        <!-- "pFiles Editor" in other apps' Open with / Share lists: text-like files. -->
         <activity-alias
             android:name=".OpenText"
             android:exported="true"
@@ -152,7 +153,7 @@
             </intent-filter>
         </activity-alias>
 
-        <!-- "UniFX Hex" in other apps' Open with / Share lists: any file. -->
+        <!-- "pFiles Hex" in other apps' Open with / Share lists: any file. -->
         <activity-alias
             android:name=".OpenHex"
             android:exported="true"

@@ -24,7 +24,7 @@ object Kinds {
     private val DOC = setOf("doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf", "epub")
 
     fun color(isDir: Boolean, ext: String): Int = when {
-        isDir -> 0xFFF0B429.toInt()
+        isDir -> 0xFF8B5CF6.toInt()
         ext in IMAGE -> 0xFF43A047.toInt()
         ext in VIDEO -> 0xFFE53935.toInt()
         ext in AUDIO -> 0xFF8E24AA.toInt()
