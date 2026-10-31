@@ -1,5 +1,7 @@
 package x.vladgba.files
 
+import x.vladgba.files.pui.pColor
+
 import x.vladgba.files.pui.PAboutInfo
 import x.vladgba.files.pui.showPAbout
 
@@ -167,8 +169,8 @@ class MainActivity : Activity(), Panel.Host {
         banner = TextView(this).apply {
             setText(R.string.grant_access)
             setPadding(dp(16), dp(12), dp(16), dp(12))
-            setBackgroundColor(getColor(R.color.p_accent_soft))
-            setTextColor(getColor(R.color.p_on_accent_soft))
+            setBackgroundColor(pColor(R.color.p_accent_soft))
+            setTextColor(pColor(R.color.p_on_accent_soft))
             visibility = View.GONE
             setOnClickListener { Storage.request(this@MainActivity) }
         }
@@ -176,7 +178,7 @@ class MainActivity : Activity(), Panel.Host {
             isIndeterminate = true
             visibility = View.INVISIBLE
         }
-        paneDivider = View(this).apply { setBackgroundColor(getColor(R.color.p_line)) }
+        paneDivider = View(this).apply { setBackgroundColor(pColor(R.color.p_line)) }
         panes = LinearLayout(this).apply {
             addView(panels[0])
             addView(paneDivider)

@@ -1,5 +1,7 @@
 package x.vladgba.files
 
+import x.vladgba.files.pui.pColor
+
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
@@ -22,9 +24,9 @@ object Ui {
         TypedValue().also { ctx.theme.resolveAttribute(attr, it, true) }.resourceId
 
     /** Suite (pUI) text colors for the code-built headers and bars. */
-    fun fg(ctx: Context) = ctx.getColor(R.color.p_text)
-    fun fgDim(ctx: Context) = ctx.getColor(R.color.p_text2)
-    fun fgHint(ctx: Context) = ctx.getColor(R.color.p_text3)
+    fun fg(ctx: Context) = ctx.pColor(R.color.p_text)
+    fun fgDim(ctx: Context) = ctx.pColor(R.color.p_text2)
+    fun fgHint(ctx: Context) = ctx.pColor(R.color.p_text3)
 
     fun isNight(ctx: Context) =
         (ctx.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES

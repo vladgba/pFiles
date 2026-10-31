@@ -1,5 +1,7 @@
 package x.vladgba.files
 
+import x.vladgba.files.pui.pColor
+
 import android.app.Activity
 import android.content.Context
 import android.graphics.Canvas
@@ -221,7 +223,7 @@ class HexActivity : Activity() {
         cOff = if (night) 0xFF6B9BD1.toInt() else 0xFF5F6B7A.toInt()
         cMod = if (night) 0xFFFF7B72.toInt() else 0xFFD32F2F.toInt()
         cCursor = if (night) 0x408B5CF6 else 0x407C3AED
-        cAccent = getColor(R.color.p_accent_text)
+        cAccent = pColor(R.color.p_accent_text)
     }
 
     /** Pick 16, 8 or 4 bytes per row, whichever fits the width. */
