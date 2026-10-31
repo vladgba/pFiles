@@ -46,7 +46,7 @@ class MarkdownActivity : Activity() {
         super.onCreate(state)
         file = File(intent.getStringExtra(Openers.EXTRA_PATH) ?: run { finish(); return })
         Openers.adoptTarget(this, file)
-        prefs = getSharedPreferences("unifx", MODE_PRIVATE)
+        prefs = getSharedPreferences("pfiles", MODE_PRIVATE)
         fontSp = prefs.getFloat("ed_font", 14f)
         breaksOn = prefs.getBoolean("md_breaks", false)
         anchorsOn = prefs.getBoolean("md_anchors", true)

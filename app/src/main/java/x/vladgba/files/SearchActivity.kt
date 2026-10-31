@@ -59,7 +59,7 @@ class SearchActivity : Activity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         root = File(intent.getStringExtra(Openers.EXTRA_PATH) ?: Storage.primary().path)
-        prefs = getSharedPreferences("unifx", MODE_PRIVATE)
+        prefs = getSharedPreferences("pfiles", MODE_PRIVATE)
         actionBar?.setDisplayHomeAsUpEnabled(true)
         actionBar?.setTitle(R.string.search_title)
         actionBar?.subtitle = root.path

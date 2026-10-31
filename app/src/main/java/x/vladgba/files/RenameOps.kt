@@ -134,7 +134,7 @@ object RenameOps {
         var failed = 0
         val staged = ArrayList<Pair<Item, File>>()
         for ((i, item) in todo.withIndex()) {
-            val tmp = File(item.file.parentFile, ".unifx-rename-$i-${System.nanoTime()}")
+            val tmp = File(item.file.parentFile, ".pfiles-rename-$i-${System.nanoTime()}")
             if (item.file.renameTo(tmp)) staged += item to tmp else failed++
         }
         for ((item, tmp) in staged) {

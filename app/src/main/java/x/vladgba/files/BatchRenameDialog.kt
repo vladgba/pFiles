@@ -30,7 +30,7 @@ object BatchRenameDialog {
     private const val RED = 0xFFE53935.toInt()
 
     fun show(a: Activity, files: List<File>, onApply: (RenameOps.Plan) -> Unit) {
-        val prefs = a.getSharedPreferences("unifx", Context.MODE_PRIVATE)
+        val prefs = a.getSharedPreferences("pfiles", Context.MODE_PRIVATE)
         fun dp(v: Int) = Ui.dp(a, v)
 
         val find = field(a, R.string.rename_find, prefs.getString("rn_find", "*") ?: "*")

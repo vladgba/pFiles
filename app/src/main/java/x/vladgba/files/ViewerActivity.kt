@@ -301,7 +301,7 @@ class ViewerActivity : Activity() {
         src = try { ByteSource(file) } catch (e: IOException) {
             Toast.makeText(this, R.string.cannot_open, Toast.LENGTH_SHORT).show(); finish(); return
         }
-        prefs = getSharedPreferences("unifx", MODE_PRIVATE)
+        prefs = getSharedPreferences("pfiles", MODE_PRIVATE)
         fontSp = prefs.getFloat("ed_font", 14f)
         binary = (0 until min(src.size, 8192L)).any { src.byteAt(it) == 0 }
         highlightOn = prefs.getBoolean("hl", true)

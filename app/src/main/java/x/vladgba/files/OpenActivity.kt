@@ -20,7 +20,7 @@ import java.io.IOException
 
 /**
  * Entry point for other apps: ACTION_VIEW / ACTION_EDIT / ACTION_SEND with a file:// or content:// URI.
- * Reached through two manifest aliases, "UniFX Editor" (text) and "UniFX Hex" (any file).
+ * Reached through two manifest aliases, "pFiles Editor" (text) and "pFiles Hex" (any file).
  *
  * 1. If the URI resolves to a real, readable file (file://, our own provider, the external-storage and
  *    downloads document providers, or a provider exposing a `_data` path), that file is opened directly.

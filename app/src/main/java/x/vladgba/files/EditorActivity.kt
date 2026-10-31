@@ -73,7 +73,7 @@ class EditorActivity : Activity() {
         super.onCreate(state)
         file = File(intent.getStringExtra(Openers.EXTRA_PATH) ?: run { finish(); return })
         Openers.adoptTarget(this, file)
-        prefs = getSharedPreferences("unifx", MODE_PRIVATE)
+        prefs = getSharedPreferences("pfiles", MODE_PRIVATE)
         fontSp = prefs.getFloat("ed_font", 14f)
         wrap = prefs.getBoolean("ed_wrap", false)
         highlightOn = prefs.getBoolean("hl", true)

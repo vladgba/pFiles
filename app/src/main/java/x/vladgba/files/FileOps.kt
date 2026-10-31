@@ -123,7 +123,7 @@ object FileOps {
      */
     fun writeAtomic(file: File, bytes: ByteArray): Boolean = try {
         val f = try { file.canonicalFile } catch (e: IOException) { file }
-        val tmp = File(f.parentFile, "." + f.name + ".unifx~")
+        val tmp = File(f.parentFile, "." + f.name + ".pfiles~")
         try {
             tmp.writeBytes(bytes)
             if (f.canExecute()) tmp.setExecutable(true, false)
