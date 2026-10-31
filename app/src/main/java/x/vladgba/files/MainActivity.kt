@@ -3,14 +3,13 @@ package x.vladgba.files
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.SharedPreferences
+import android.content.res.Configuration
 import android.graphics.Color
-import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.Editable
-import android.text.TextUtils
 import android.text.TextWatcher
 import android.text.format.Formatter
 import android.util.TypedValue
@@ -21,11 +20,8 @@ import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
-import android.widget.AbsListView
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.GridView
-import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
@@ -36,46 +32,48 @@ import java.io.File
 import java.io.IOException
 import java.text.DateFormat
 import java.util.Date
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-class MainActivity : Activity() {
+class MainActivity : Activity(), Panel.Host {
 
     private lateinit var prefs: SharedPreferences
-    private lateinit var adapter: FileAdapter
-    private lateinit var list: GridView
-    private lateinit var crumbs: LinearLayout
-    private lateinit var crumbScroll: HorizontalScrollView
     private lateinit var banner: TextView
     private lateinit var progress: ProgressBar
-    private lateinit var emptyView: TextView
+
+    // Two file panels, Total Commander style. The bottom bar, search and paste act on the active one.
+    private lateinit var panels: List<Panel>
+    private lateinit var panes: LinearLayout
+    private lateinit var paneDivider: View
+    private var activeIndex = 0
+    private val active get() = panels[activeIndex]
+    private val other get() = panels[1 - activeIndex]
+    private val selecting get() = active.selecting
 
     private val ui = Handler(Looper.getMainLooper())
-    private val loader = Executors.newSingleThreadExecutor()
+    override val loader: ExecutorService = Executors.newSingleThreadExecutor()
     private val worker = Executors.newSingleThreadExecutor()
-    private val scrollMemory = HashMap<String, Int>()
-    private var loadToken = 0
     private var busyCount = 0
-    private var shownDir: File? = null
-    private var selecting = false
     private lateinit var normalIcons: LinearLayout
     private lateinit var selectIcons: LinearLayout
     private val selButtons = HashMap<Int, ImageView>()
-    private lateinit var titleView: TextView
-    private lateinit var infoView: TextView
     private lateinit var pasteButton: ImageView
     private lateinit var viewButton: ImageView
     private lateinit var hiddenButton: ImageView
+    private lateinit var dualButton: ImageView
     private lateinit var searchRow: LinearLayout
     private lateinit var searchInput: EditText
 
-    private var roots: List<Storage.Root> = emptyList()
-    private var cwd: File = File("/")
+    override var roots: List<Storage.Root> = emptyList()
+        private set
     private var clip: List<File> = emptyList()
     private var clipMove = false
     private var sortMode = SORT_NAME
     private var sortDesc = false
-    private var showHidden = false
+    override var showHidden = false
+        private set
     private var gridMode = false
+    private var dualMode = false
 
     // ---------------------------------------------------------------- lifecycle
 
@@ -86,14 +84,17 @@ class MainActivity : Activity() {
         sortDesc = prefs.getBoolean("desc", false)
         showHidden = prefs.getBoolean("hidden", false)
         gridMode = prefs.getBoolean("grid", false)
-        adapter = FileAdapter(this)
-        adapter.isChecked = { pos -> selecting && list.isItemChecked(pos) }
-        setContentView(buildUi())
-        applyViewMode()
-        refreshBar()
+        dualMode = prefs.getBoolean("dual", false)
+        activeIndex = (state?.getInt("active") ?: prefs.getInt("active", 0)).coerceIn(0, 1)
         roots = Storage.roots(this)
-        val start = state?.getString("cwd") ?: prefs.getString("cwd", null)
-        cwd = start?.let(::File)?.takeIf { it.isDirectory } ?: Storage.primary()
+        panels = listOf(Panel(this, this), Panel(this, this))
+        setContentView(buildUi())
+        val first = startDir(state?.getString("cwd") ?: prefs.getString("cwd", null), Storage.primary())
+        panels[0].start(first)
+        panels[1].start(startDir(state?.getString("cwd2") ?: prefs.getString("cwd2", null), first))
+        panels.forEach { it.applyViewMode(gridMode) }
+        applyPaneLayout()
+        refreshBar()
         // Copy/cut list survives the activity being rebuilt (theme switch, process death while in background).
         state?.getStringArrayList("clip")?.let { paths ->
             clip = paths.map(::File)
@@ -102,22 +103,30 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun startDir(path: String?, fallback: File) = path?.let(::File)?.takeIf { it.isDirectory } ?: fallback
+
     override fun onResume() {
         super.onResume()
         roots = Storage.roots(this)
         val ok = Storage.hasAccess(this)
         banner.visibility = if (ok) View.GONE else View.VISIBLE
-        load() // also picks up changes made by other apps while we were away
+        loadShown() // also picks up changes made by other apps while we were away
     }
 
     override fun onPause() {
         super.onPause()
-        prefs.edit().putString("cwd", cwd.path).apply()
+        prefs.edit()
+            .putString("cwd", panels[0].cwd.path)
+            .putString("cwd2", panels[1].cwd.path)
+            .putInt("active", activeIndex)
+            .apply()
     }
 
     override fun onSaveInstanceState(out: Bundle) {
         super.onSaveInstanceState(out)
-        out.putString("cwd", cwd.path)
+        out.putString("cwd", panels[0].cwd.path)
+        out.putString("cwd2", panels[1].cwd.path)
+        out.putInt("active", activeIndex)
         out.putStringArrayList("clip", ArrayList(clip.map { it.path }))
         out.putBoolean("clipMove", clipMove)
     }
@@ -137,8 +146,12 @@ class MainActivity : Activity() {
     override fun onBackPressed() {
         if (selecting) { finishSelection(); return }
         if (searchRow.visibility == View.VISIBLE) { closeSearch(); return }
-        val parent = cwd.parentFile
-        if (parent != null && roots.none { it.dir == cwd }) navigate(parent) else super.onBackPressed()
+        if (!active.goUp()) super.onBackPressed()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyPaneLayout() // side by side in landscape, stacked in portrait
     }
 
     // ---------------------------------------------------------------- UI
@@ -151,61 +164,26 @@ class MainActivity : Activity() {
         banner = TextView(this).apply {
             setText(R.string.grant_access)
             setPadding(dp(16), dp(12), dp(16), dp(12))
-            setBackgroundColor(0xFFFFE082.toInt())
-            setTextColor(0xFF202020.toInt())
+            setBackgroundColor(getColor(R.color.p_accent_soft))
+            setTextColor(getColor(R.color.p_on_accent_soft))
             visibility = View.GONE
             setOnClickListener { Storage.request(this@MainActivity) }
-        }
-        crumbs = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), 0, dp(4), 0)
-        }
-        crumbScroll = HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            addView(crumbs, FrameLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
         }
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             isIndeterminate = true
             visibility = View.INVISIBLE
         }
-        emptyView = TextView(this).apply {
-            gravity = Gravity.CENTER
-            setPadding(dp(32), dp(32), dp(32), dp(32))
-            alpha = 0.6f
+        paneDivider = View(this).apply { setBackgroundColor(getColor(R.color.p_line)) }
+        panes = LinearLayout(this).apply {
+            addView(panels[0])
+            addView(paneDivider)
+            addView(panels[1])
         }
-        list = GridView(this).apply {
-            isFastScrollEnabled = true
-            clipToPadding = false
-            choiceMode = AbsListView.CHOICE_MODE_NONE
-            this.adapter = this@MainActivity.adapter
-            setOnItemClickListener { _, _, pos, _ ->
-                if (selecting) {
-                    // CHOICE_MODE_MULTIPLE already toggled the item.
-                    if (list.checkedItemCount == 0) finishSelection() else onSelectionChanged()
-                    return@setOnItemClickListener
-                }
-                val e = this@MainActivity.adapter.getItem(pos)
-                if (e.isDir) navigate(e.file) else Openers.open(this@MainActivity, e.file)
-            }
-            setOnItemLongClickListener { _, _, pos, _ ->
-                if (!selecting) startSelection()
-                list.setItemChecked(pos, !list.isItemChecked(pos))
-                if (list.checkedItemCount == 0) finishSelection() else onSelectionChanged()
-                true
-            }
-        }
-        val frame = FrameLayout(this).apply {
-            addView(list, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
-            addView(emptyView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
-        }
-        list.emptyView = emptyView
 
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(buildTopLine(), LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(banner, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-            addView(frame, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            addView(panes, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             addView(progress, LinearLayout.LayoutParams(MATCH_PARENT, dp(4)))
             addView(buildBottomBar(), LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             // Edge-to-edge: keep clear of the status bar on top and the navigation bar / keyboard below.
@@ -223,57 +201,28 @@ class MainActivity : Activity() {
         }
     }
 
-    // ---------------------------------------------------------------- top line + bottom bar
+    // ---------------------------------------------------------------- layout + bottom bar
     //
-    //   [ Docs · 12 items · 3 to paste                       ]   slim line at the top
-    //   [ Internal › Download › Docs                         ]   breadcrumb
-    //   ...list...
+    //   [ Internal › Docs   12 items  |  Internal › DCIM   40 items ]   breadcrumb + count, one per panel
+    //   ...list...                    |  ...list...              second panel: side by side in landscape,
+    //                                                            stacked in portrait, hidden in one-panel mode
     //   [ search field (when open)                     ✕ ]
     //   [ 🔍  📁+  📄+  ⇅  ▦  👁  💾  ⟳  📋              ]   every action is an icon, within thumb reach
 
     private fun primaryColor() = TypedValue().also { theme.resolveAttribute(android.R.attr.colorPrimary, it, true) }.data
 
-    private fun buildTopLine(): View {
-        titleView = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setTypeface(typeface, Typeface.BOLD)
-            setSingleLine()
-            ellipsize = TextUtils.TruncateAt.MIDDLE
-        }
-        infoView = TextView(this).apply {
-            setTextColor(0xB3FFFFFF.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            setSingleLine()
-            setPadding(dp(8), 0, 0, 0)
-        }
-        val line = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(4), dp(12), dp(2))
-            addView(titleView, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, 0f))
-            addView(infoView, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-        }
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(primaryColor())
-            addView(line, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-            addView(crumbScroll, LinearLayout.LayoutParams(MATCH_PARENT, dp(32)))
-        }
-    }
-
     private fun buildBottomBar(): View {
         searchInput = EditText(this).apply {
             setSingleLine()
             setHint(R.string.search)
-            setTextColor(Color.WHITE)
-            setHintTextColor(0x99FFFFFF.toInt())
+            setTextColor(Ui.fg(context))
+            setHintTextColor(Ui.fgHint(context))
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence, a: Int, b: Int, c: Int) {}
                 override fun onTextChanged(s: CharSequence, a: Int, b: Int, c: Int) {}
                 override fun afterTextChanged(s: Editable) {
                     finishSelection()
-                    adapter.filter(s.toString())
+                    active.adapter.filter(s.toString())
                 }
             })
         }
@@ -284,14 +233,13 @@ class MainActivity : Activity() {
             setPadding(dp(8), 0, 0, 0)
             addView(searchInput, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
             // Deep search: subfolders and file contents, on its own screen.
-            addView(Ui.button(context, getString(R.string.search_subfolders)) { openDeepSearch() }.apply {
-                setTextColor(Color.WHITE)
-            }, LinearLayout.LayoutParams(WRAP_CONTENT, dp(44)))
+            addView(Ui.button(context, getString(R.string.search_subfolders)) { openDeepSearch() }, LinearLayout.LayoutParams(WRAP_CONTENT, dp(44)))
             addView(barIcon(R.drawable.ic_close, R.string.close) { closeSearch() }, LinearLayout.LayoutParams(dp(44), dp(44)))
         }
         pasteButton = barIcon(R.drawable.ic_paste, R.string.paste_short) { paste() }.apply { visibility = View.GONE }
         viewButton = barIcon(R.drawable.ic_view_grid, R.string.view_grid) { onMenuItem(M_VIEW) }
         hiddenButton = barIcon(R.drawable.ic_hidden, R.string.show_hidden) { onMenuItem(M_HIDDEN) }
+        dualButton = barIcon(R.drawable.ic_dual_pane, R.string.two_panels) { onMenuItem(M_DUAL) }
         normalIcons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             listOf(
@@ -299,6 +247,7 @@ class MainActivity : Activity() {
                 barIcon(R.drawable.ic_new_folder, R.string.new_folder) { onMenuItem(M_NEW_DIR) },
                 barIcon(R.drawable.ic_new_file, R.string.new_file) { onMenuItem(M_NEW_FILE) },
                 barIcon(R.drawable.ic_sort, R.string.sort) { showSortMenu(it) },
+                dualButton,
                 viewButton,
                 hiddenButton,
                 barIcon(R.drawable.ic_storage, R.string.storage) { showStorageMenu(it) },
@@ -353,7 +302,7 @@ class MainActivity : Activity() {
 
     private fun openDeepSearch() {
         val i = android.content.Intent(this, SearchActivity::class.java)
-            .putExtra(Openers.EXTRA_PATH, cwd.path)
+            .putExtra(Openers.EXTRA_PATH, active.cwd.path)
             .putExtra(SearchActivity.EXTRA_NAME, searchInput.text.toString())
         @Suppress("DEPRECATION")
         startActivityForResult(i, REQ_SEARCH)
@@ -365,7 +314,7 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQ_SEARCH || resultCode != RESULT_OK) return
         val dir = data?.getStringExtra(Openers.EXTRA_PATH)?.let(::File)?.takeIf { it.isDirectory } ?: return
-        navigate(dir)
+        active.navigate(dir)
     }
 
     private fun closeSearch() {
@@ -384,16 +333,27 @@ class MainActivity : Activity() {
         viewButton.setImageResource(if (gridMode) R.drawable.ic_view_list else R.drawable.ic_view_grid)
         viewButton.contentDescription = getString(if (gridMode) R.string.view_list else R.string.view_grid)
         hiddenButton.imageAlpha = if (showHidden) 255 else 110
+        dualButton.imageAlpha = if (dualMode) 255 else 110
         updateInfo()
     }
 
-    private var itemCount: Int? = null
-
+    /** Breadcrumb info of each panel: item count, or "3 selected · 1.2 MB"; the active one also shows the paste list. */
     private fun updateInfo() {
-        val parts = ArrayList<String>()
-        itemCount?.let { parts += resources.getQuantityString(R.plurals.items, it, it) }
-        if (clip.isNotEmpty()) parts += resources.getQuantityString(R.plurals.to_paste, clip.size, clip.size)
-        infoView.text = parts.joinToString(" · ")
+        if (!::panels.isInitialized) return
+        if (selecting) updateSelectionButtons()
+        for (p in panels) {
+            val parts = ArrayList<String>()
+            if (p.selecting) {
+                val sel = p.selected()
+                parts += resources.getQuantityString(R.plurals.selected_count, sel.size, sel.size)
+                val bytes = sel.filter { !it.isDir }.sumOf { it.size }
+                if (bytes > 0) parts += Formatter.formatShortFileSize(this, bytes)
+            } else {
+                p.itemCount?.let { parts += resources.getQuantityString(R.plurals.items, it, it) }
+            }
+            if (p === active && clip.isNotEmpty()) parts += resources.getQuantityString(R.plurals.to_paste, clip.size, clip.size)
+            p.setInfo(parts.joinToString(" · "))
+        }
     }
 
     private fun showSortMenu(anchor: View) {
@@ -418,56 +378,27 @@ class MainActivity : Activity() {
         p.show()
     }
 
-    /** One GridView serves both modes: a single stretched column is the list, auto-fit tiles are the grid. */
-    private fun applyViewMode() {
-        val pos = list.firstVisiblePosition
-        finishSelection()
-        if (gridMode) {
-            list.numColumns = GridView.AUTO_FIT
-            list.columnWidth = dp(104)
-            list.stretchMode = GridView.STRETCH_COLUMN_WIDTH
-            list.horizontalSpacing = dp(4)
-            list.verticalSpacing = dp(4)
-            list.setPadding(dp(4), dp(4), dp(4), dp(4))
-        } else {
-            list.numColumns = 1
-            list.stretchMode = GridView.STRETCH_COLUMN_WIDTH
-            list.horizontalSpacing = 0
-            list.verticalSpacing = 0
-            list.setPadding(0, 0, 0, 0)
+    /** Two panels side by side in landscape, one above the other in portrait; one panel when dual mode is off. */
+    private fun applyPaneLayout() {
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        panes.orientation = if (landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+        fun weighted() = if (landscape) LinearLayout.LayoutParams(0, MATCH_PARENT, 1f)
+            else LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f)
+        panels.forEachIndexed { i, p ->
+            p.layoutParams = weighted()
+            p.visibility = if (dualMode || i == activeIndex) View.VISIBLE else View.GONE
+            p.setActive(i == activeIndex, dualMode)
         }
-        adapter.grid = gridMode
-        list.setSelection(pos)
+        paneDivider.layoutParams = if (landscape) LinearLayout.LayoutParams(dp(1), MATCH_PARENT)
+            else LinearLayout.LayoutParams(MATCH_PARENT, dp(1))
+        paneDivider.visibility = if (dualMode) View.VISIBLE else View.GONE
     }
 
-    private fun renderCrumbs() {
-        val chain = ArrayList<Pair<String, File>>()
-        var d: File? = cwd
-        while (d != null) {
-            val root = roots.firstOrNull { it.dir == d && it.dir.path != "/" }
-            if (root != null) { chain += root.label to d; break }
-            chain += (if (d.path == "/") "/" else d.name) to d
-            d = d.parentFile
-        }
-        chain.reverse()
-        crumbs.removeAllViews()
-        chain.forEachIndexed { i, (label, dir) ->
-            if (i > 0) crumbs.addView(TextView(this).apply { text = "›"; setTextColor(Color.WHITE); alpha = 0.5f })
-            crumbs.addView(TextView(this).apply {
-                text = label
-                setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setPadding(dp(6), dp(6), dp(6), dp(6))
-                setBackgroundResource(attrRes(android.R.attr.selectableItemBackground))
-                if (i == chain.lastIndex) setTypeface(typeface, Typeface.BOLD)
-                setOnClickListener { if (dir != cwd) navigate(dir) }
-            })
-        }
-        titleView.text = chain.last().first
-        crumbScroll.post { crumbScroll.fullScroll(View.FOCUS_RIGHT) }
-    }
+    private fun shownPanels() = if (dualMode) panels else listOf(active)
 
-    private fun busy(on: Boolean) {
+    private fun loadShown() = shownPanels().forEach { it.load() }
+
+    override fun busy(on: Boolean) {
         busyCount += if (on) 1 else -1
         progress.visibility = if (busyCount > 0) View.VISIBLE else View.INVISIBLE
     }
@@ -477,43 +408,56 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- navigation & loading
 
-    private fun navigate(dir: File) {
-        scrollMemory[cwd.path] = list.firstVisiblePosition
-        finishSelection()
+    // ---------------------------------------------------------------- panel callbacks
+
+    override fun onActivate(p: Panel) {
+        val i = panels.indexOf(p)
+        if (i == activeIndex) return
+        // Selection and the name filter belong to the panel they were made in.
+        active.finishSelection()
         closeSearch()
-        cwd = dir
-        load()
+        activeIndex = i
+        panels.forEachIndexed { j, q -> q.setActive(j == i, dualMode) }
+        updateInfo()
     }
 
-    private fun load() {
-        if (isDestroyed || loader.isShutdown) return
-        val dir = cwd
-        val token = ++loadToken
-        val hidden = showHidden
-        val cmp = comparator()
-        renderCrumbs()
-        busy(true)
-        loader.execute {
-            val entries = dir.listFiles()
-                ?.filter { hidden || !it.name.startsWith(".") }
-                ?.map(::Entry)
-                ?.sortedWith(cmp)
-            ui.post {
-                busy(false)
-                if (token != loadToken || isFinishing) return@post
-                val pos = scrollMemory.remove(dir.path) ?: if (shownDir == dir) list.firstVisiblePosition else 0
-                finishSelection()
-                adapter.setData(entries ?: emptyList())
-                shownDir = dir
-                emptyView.setText(if (entries == null) R.string.cannot_read else R.string.empty)
-                itemCount = entries?.size
-                updateInfo()
-                list.setSelection(pos)
-            }
+    override fun beforeNavigate(p: Panel) {
+        if (p === active) closeSearch()
+    }
+
+    override fun onOpen(p: Panel, e: Entry) {
+        if (e.isDir) p.navigate(e.file) else Openers.open(this, e.file)
+    }
+
+    override fun onLocationChanged(p: Panel) {
+        updateInfo() // every panel shows its own count
+    }
+
+    override fun onSelectionChanged(p: Panel) {
+        if (p !== active) return
+        normalIcons.visibility = if (p.selecting) View.GONE else View.VISIBLE
+        selectIcons.visibility = if (p.selecting) View.VISIBLE else View.GONE
+        updateInfo()
+    }
+
+    /** Files dragged from [source] were dropped on [target] (a folder in either panel): ask copy or move. */
+    override fun onDrop(source: Panel, files: List<File>, target: File) {
+        when (FileOps.checkDrop(files, target)) {
+            FileOps.DropCheck.NOTHING_TO_DO -> return
+            FileOps.DropCheck.INTO_ITSELF -> { toast(R.string.into_itself); return }
+            FileOps.DropCheck.OK -> Unit
         }
+        val what = files.singleOrNull()?.name ?: resources.getQuantityString(R.plurals.items, files.size, files.size)
+        AlertDialog.Builder(this)
+            .setTitle(what)
+            .setMessage(getString(R.string.drop_to, target.path))
+            .setPositiveButton(R.string.copy) { _, _ -> source.finishSelection(); transfer(files, target, false) }
+            .setNeutralButton(R.string.move) { _, _ -> source.finishSelection(); transfer(files, target, true) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
-    private fun comparator(): Comparator<Entry> {
+    override fun comparator(): Comparator<Entry> {
         val byName = compareBy(String.CASE_INSENSITIVE_ORDER) { e: Entry -> e.name }
         var c: Comparator<Entry> = when (sortMode) {
             SORT_SIZE -> compareBy<Entry> { it.size }.then(byName)
@@ -532,29 +476,37 @@ class MainActivity : Activity() {
         when {
             id == M_PASTE -> paste()
             id == M_NEW_DIR -> prompt(R.string.new_folder, "") { name ->
-                val f = File(cwd, name)
+                val f = File(active.cwd, name)
                 when {
                     FileOps.existsNoFollow(f) -> toast(R.string.exists)
                     !f.mkdir() -> toast(R.string.failed)
-                    else -> load()
+                    else -> loadShown()
                 }
             }
             id == M_NEW_FILE -> prompt(R.string.new_file, "") { name ->
-                val f = File(cwd, name)
+                val f = File(active.cwd, name)
                 val ok = try { f.createNewFile() } catch (e: IOException) { false }
-                if (f.exists() && !ok) toast(R.string.exists) else if (!ok) toast(R.string.failed) else load()
+                if (f.exists() && !ok) toast(R.string.exists) else if (!ok) toast(R.string.failed) else loadShown()
             }
-            id in M_SORT_NAME..M_SORT_TYPE -> { sortMode = id - M_SORT_NAME; savePrefs(); load() }
-            id == M_DESC -> { sortDesc = !sortDesc; savePrefs(); load() }
+            id in M_SORT_NAME..M_SORT_TYPE -> { sortMode = id - M_SORT_NAME; savePrefs(); loadShown() }
+            id == M_DESC -> { sortDesc = !sortDesc; savePrefs(); loadShown() }
             id == M_VIEW -> {
                 gridMode = !gridMode
                 prefs.edit().putBoolean("grid", gridMode).apply()
-                applyViewMode()
+                panels.forEach { it.applyViewMode(gridMode) }
                 refreshBar()
             }
-            id == M_HIDDEN -> { showHidden = !showHidden; savePrefs(); refreshBar(); load() }
-            id == M_REFRESH -> load()
-            id >= M_ROOT_BASE -> roots.getOrNull(id - M_ROOT_BASE)?.let { navigate(it.dir) }
+            id == M_DUAL -> {
+                dualMode = !dualMode
+                prefs.edit().putBoolean("dual", dualMode).apply()
+                if (!dualMode) other.finishSelection()
+                applyPaneLayout()
+                refreshBar()
+                if (dualMode) other.load()
+            }
+            id == M_HIDDEN -> { showHidden = !showHidden; savePrefs(); refreshBar(); loadShown() }
+            id == M_REFRESH -> loadShown()
+            id >= M_ROOT_BASE -> roots.getOrNull(id - M_ROOT_BASE)?.let { active.navigate(it.dir) }
             else -> return false // submenu headers: let the popup open the submenu
         }
         return true
@@ -566,40 +518,14 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- selection (long-press)
 
-    private fun selected(): List<Entry> {
-        val c = list.checkedItemPositions ?: return emptyList()
-        return (0 until c.size()).filter { c.valueAt(it) }.map { adapter.getItem(c.keyAt(it)) }
-    }
+    private fun selected(): List<Entry> = active.selected()
 
-    private fun startSelection() {
-        selecting = true
-        list.choiceMode = AbsListView.CHOICE_MODE_MULTIPLE
-        normalIcons.visibility = View.GONE
-        selectIcons.visibility = View.VISIBLE
-    }
+    private fun finishSelection() = active.finishSelection()
 
-    private fun finishSelection() {
-        if (!selecting) return
-        selecting = false
-        list.clearChoices()
-        list.choiceMode = AbsListView.CHOICE_MODE_NONE
-        // With choice mode off the list no longer updates the highlight, so clear it on visible rows
-        // ourselves; recycled rows are reset by the adapter (isChecked) when they're rebound.
-        for (i in 0 until list.childCount) list.getChildAt(i).isActivated = false
-        list.invalidateViews()
-        selectIcons.visibility = View.GONE
-        normalIcons.visibility = View.VISIBLE
-        renderCrumbs() // restores the folder title
-        updateInfo()
-    }
-
-    /** Top line shows the count; actions that need exactly one item / no folders hide otherwise. */
-    private fun onSelectionChanged() {
+    /** Actions that need exactly one item / no folders hide otherwise. */
+    private fun updateSelectionButtons() {
         val sel = selected()
         val one = sel.size == 1
-        titleView.text = resources.getQuantityString(R.plurals.selected_count, sel.size, sel.size)
-        val bytes = sel.filter { !it.isDir }.sumOf { it.size }
-        infoView.text = if (bytes > 0) Formatter.formatShortFileSize(this, bytes) else ""
         fun show(id: Int, v: Boolean) { selButtons[id]?.visibility = if (v) View.VISIBLE else View.GONE }
         show(A_RENAME, one)
         show(A_INFO, one)
@@ -608,11 +534,7 @@ class MainActivity : Activity() {
     }
 
     private fun onSelectionAction(id: Int, anchor: View) {
-        if (id == A_ALL) {
-            for (i in 0 until adapter.count) list.setItemChecked(i, true)
-            onSelectionChanged()
-            return
-        }
+        if (id == A_ALL) { active.selectAll(); return }
         if (id == A_MORE) { showSelectionMore(anchor); return } // keeps the selection until an item is picked
         val sel = selected()
         finishSelection()
@@ -638,6 +560,10 @@ class MainActivity : Activity() {
         val p = PopupMenu(this, anchor)
         p.menu.add(0, A_BATCH_RENAME, 0, R.string.rename_by_pattern)
         p.menu.add(0, A_ZIP, 1, R.string.zip_compress)
+        if (dualMode) {
+            p.menu.add(0, A_COPY_OTHER, 4, R.string.copy_to_other)
+            p.menu.add(0, A_MOVE_OTHER, 5, R.string.move_to_other)
+        }
         if (sel.size == 1 && !sel[0].isDir && ArchiveOps.isArchive(sel[0].file)) {
             p.menu.add(0, A_ZIP_PREVIEW, 2, R.string.zip_preview)
             p.menu.add(0, A_UNZIP, 3, R.string.zip_extract)
@@ -649,6 +575,15 @@ class MainActivity : Activity() {
                 A_ZIP -> compress(sel.map { it.file })
                 A_ZIP_PREVIEW -> ZipModule.open(this, sel[0].file)
                 A_UNZIP -> extract(sel[0].file)
+                A_COPY_OTHER, A_MOVE_OTHER -> {
+                    val files = sel.map { it.file }
+                    val dest = other.cwd
+                    when (FileOps.checkDrop(files, dest)) {
+                        FileOps.DropCheck.OK -> transfer(files, dest, item.itemId == A_MOVE_OTHER)
+                        FileOps.DropCheck.INTO_ITSELF -> toast(R.string.into_itself)
+                        FileOps.DropCheck.NOTHING_TO_DO -> toast(R.string.same_folder)
+                    }
+                }
             }
             true
         }
@@ -669,7 +604,7 @@ class MainActivity : Activity() {
 
     /** Asks for the archive name (one item: its name; several: the folder's), then packs into the current folder. */
     private fun compress(files: List<File>) {
-        val dir = cwd
+        val dir = active.cwd
         val one = files.singleOrNull()
         val base = when {
             one == null -> dir.name.ifEmpty { "archive" }
@@ -735,7 +670,7 @@ class MainActivity : Activity() {
         when {
             !caseOnly && FileOps.existsNoFollow(target) -> toast(R.string.exists)
             !f.renameTo(target) -> toast(R.string.failed)
-            else -> load()
+            else -> loadShown()
         }
     }
 
@@ -754,13 +689,22 @@ class MainActivity : Activity() {
     private fun paste() {
         val src = clip
         val move = clipMove
-        val dest = cwd
+        val dest = active.cwd
         if (src.any { FileOps.isInside(dest, it) }) {
             toast(R.string.into_itself)
             return
         }
         if (move) { clip = emptyList(); refreshBar() }
         runOp { FileOps.transfer(src, dest, move) }
+    }
+
+    /** Copy or move [files] into [dest] (drag & drop, "to other panel"); moved files leave the paste list. */
+    private fun transfer(files: List<File>, dest: File, move: Boolean) {
+        if (move) {
+            val moved = files.toSet()
+            if (clip.any { it in moved }) { clip = clip - moved; refreshBar() }
+        }
+        runOp { FileOps.transfer(files, dest, move) }
     }
 
     /** Run a blocking op off the UI thread; [op] returns the number of failures. */
@@ -777,7 +721,7 @@ class MainActivity : Activity() {
                     failed > 0 -> toast(resources.getQuantityString(R.plurals.partly_failed, failed, failed))
                     else -> toast(R.string.done)
                 }
-                load()
+                loadShown() // both panels: a copy or move usually touches the other one too
             }
         }
     }
@@ -834,6 +778,7 @@ class MainActivity : Activity() {
         const val M_STORAGE = 21
         const val M_REFRESH = 22
         const val M_VIEW = 23
+        const val M_DUAL = 24
         const val M_ROOT_BASE = 100
 
         const val A_COPY = 1
@@ -850,6 +795,8 @@ class MainActivity : Activity() {
         const val A_UNZIP = 12
         const val A_BATCH_RENAME = 13
         const val A_ZIP_PREVIEW = 14
+        const val A_COPY_OTHER = 15
+        const val A_MOVE_OTHER = 16
 
         const val REQ_SEARCH = 1
     }

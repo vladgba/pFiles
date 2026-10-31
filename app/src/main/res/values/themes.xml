@@ -1,19 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="android:Theme.Material.Light.DarkActionBar">
-        <item name="android:colorPrimary">#263238</item>
-        <item name="android:colorPrimaryDark">#1C262B</item>
-        <item name="android:colorAccent">#F0A500</item>
-    </style>
+    <!-- Suite theme (pUI): flat page-colored action bar, violet accent, follows the system dark mode. -->
+    <style name="AppTheme" parent="Theme.P.Bar" />
 
-    <!-- Screens that draw their own header (text editor). Inherits AppTheme's day/night colors. -->
+    <!-- Screens that draw their own header (file panels, text editor). -->
     <style name="AppTheme.NoBar">
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
-        <!-- Selection bar: drawn over the top lines, primary color, light icons/text. -->
+        <!-- Selection bar: drawn over the top lines on the suite's accent-soft container. -->
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:actionModeBackground">?android:attr/colorPrimary</item>
-        <item name="android:actionBarTheme">@android:style/ThemeOverlay.Material.Dark.ActionBar</item>
+        <item name="android:actionModeBackground">@color/p_accent_soft</item>
     </style>
 
     <!-- Invisible entry activity: shows only a spinner while copying a file from another app. -->

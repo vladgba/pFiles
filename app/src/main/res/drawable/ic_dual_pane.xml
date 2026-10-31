@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Two panels side by side. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="@color/p_text2"
+        android:pathData="M3,5v14h8V5H3zM9,17H5V7h4v10zM13,5v14h8V5h-8zM19,17h-4V7h4v10z" />
+</vector>

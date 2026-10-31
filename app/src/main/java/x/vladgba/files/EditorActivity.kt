@@ -134,14 +134,14 @@ class EditorActivity : Activity() {
         fun dp(v: Int) = Ui.dp(this, v)
         val primary = TypedValue().also { theme.resolveAttribute(android.R.attr.colorPrimary, it, true) }.data
         nameView = TextView(this).apply {
-            setTextColor(Color.WHITE)
+            setTextColor(Ui.fg(context))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             setTypeface(typeface, Typeface.BOLD)
             setSingleLine()
             ellipsize = TextUtils.TruncateAt.MIDDLE
         }
         infoView = TextView(this).apply {
-            setTextColor(0xB3FFFFFF.toInt())
+            setTextColor(Ui.fgDim(context))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             setSingleLine()
             ellipsize = TextUtils.TruncateAt.END

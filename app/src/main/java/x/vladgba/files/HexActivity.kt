@@ -220,8 +220,8 @@ class HexActivity : Activity() {
         cDim = if (night) 0xFF5F6368.toInt() else 0xFFB0B4B8.toInt()
         cOff = if (night) 0xFF6B9BD1.toInt() else 0xFF5F6B7A.toInt()
         cMod = if (night) 0xFFFF7B72.toInt() else 0xFFD32F2F.toInt()
-        cCursor = if (night) 0x40F0B429 else 0x40F0A500
-        cAccent = 0xFFF0A500.toInt()
+        cCursor = if (night) 0x408B5CF6 else 0x407C3AED
+        cAccent = getColor(R.color.p_accent_text)
     }
 
     /** Pick 16, 8 or 4 bytes per row, whichever fits the width. */

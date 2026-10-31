@@ -21,6 +21,11 @@ object Ui {
     fun attrRes(ctx: Context, attr: Int): Int =
         TypedValue().also { ctx.theme.resolveAttribute(attr, it, true) }.resourceId
 
+    /** Suite (pUI) text colors for the code-built headers and bars. */
+    fun fg(ctx: Context) = ctx.getColor(R.color.p_text)
+    fun fgDim(ctx: Context) = ctx.getColor(R.color.p_text2)
+    fun fgHint(ctx: Context) = ctx.getColor(R.color.p_text3)
+
     fun isNight(ctx: Context) =
         (ctx.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
 

@@ -265,7 +265,7 @@ class ZipActivity : Activity() {
         fun addCrumb(label: String, targetDir: String, isLast: Boolean) {
             val tv = TextView(this).apply {
                 text = label
-                setTextColor(Color.WHITE)
+                setTextColor(Ui.fg(this@ZipActivity))
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setPadding(dp(4), dp(2), dp(4), dp(2))
                 if (isLast) {
@@ -285,7 +285,7 @@ class ZipActivity : Activity() {
         for (i in segments.indices) {
             crumbs.addView(TextView(this).apply {
                 text = "›"
-                setTextColor(Color.WHITE)
+                setTextColor(Ui.fg(this@ZipActivity))
                 alpha = 0.5f
                 setPadding(dp(2), 0, dp(2), 0)
             })
