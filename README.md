@@ -4,7 +4,7 @@ A small file manager for Android, with a built-in code editor, read-only text vi
 
 UniFX has **zero library dependencies**. It uses only the Android framework and the Kotlin standard library: no AndroidX, no support libraries, no image assets. All screens are built in code and all icons are vector drawables, so the release APK is measured in kilobytes.
 
-- Package: `x.vladgba.fileman`
+- Package: `x.vladgba.files`
 - Android 5.0+ (API 21), targets API 35
 - Licence: MIT
 
@@ -82,7 +82,7 @@ Publishing to Google Play with `MANAGE_EXTERNAL_STORAGE` requires a permission d
 ## Project layout
 
 ```
-app/src/main/java/x/vladgba/fileman/
+app/src/main/java/x/vladgba/files/
 ├── MainActivity.kt      file browser: list/grid, breadcrumbs, sorting, selection, file operations
 ├── FileAdapter.kt       list rows and grid tiles, drawn type badges
 ├── Entry.kt             file snapshot + type → colour mapping

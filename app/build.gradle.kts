@@ -9,11 +9,11 @@ plugins {
 apply(from = rootProject.file("gradle/android-common.gradle"))
 
 android {
-    namespace = "x.vladgba.fileman"
+    namespace = "x.vladgba.files"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "x.vladgba.fileman"
+        applicationId = "x.vladgba.files"
         minSdk = 21
         targetSdk = 35
     }
