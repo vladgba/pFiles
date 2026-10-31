@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "UniFX"
+rootProject.name = "pFiles"
 include(":app")
