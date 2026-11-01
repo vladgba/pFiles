@@ -274,8 +274,15 @@ class ViewerActivity : Activity() {
 
     private val ui = Handler(Looper.getMainLooper())
     private val infoCache = LruCache<Int, LineIndex.RowInfo>(512)
-    private val textCache = LruCache<Int, CharSequence>(256)
-    private val offsetsCache = LruCache<Int, IntArray>(256)
+    private val textCache = object : LruCache<Int, CharSequence>(512 * 1024) {
+        override fun sizeOf(key: Int, value: CharSequence): Int {
+            val spans = (value as? Spanned)?.getSpans(0, value.length, Any::class.java)?.size ?: 0
+            return 64 + value.length * 2 + spans * 64
+        }
+    }
+    private val offsetsCache = object : LruCache<Int, IntArray>(256 * 1024) {
+        override fun sizeOf(key: Int, value: IntArray) = 16 + value.size * 4
+    }
     private var _count = 0
     private var binary = false
     private var lang: Lang? = null
@@ -494,7 +501,8 @@ class ViewerActivity : Activity() {
     /** Lenient UTF-8 decode; invalid bytes become U+FFFD (one per byte). Returns text and per-char byte offsets. */
     private fun decodeRow(b: ByteArray): Pair<String, IntArray> {
         val sb = StringBuilder(b.size)
-        val offs = IntArray(b.size * 2 + 1)
+        // Even supplementary UTF-8 code points use fewer UTF-16 units than source bytes.
+        val offs = IntArray(b.size + 1)
         var n = 0
         var i = 0
         fun cont(k: Int): Boolean {
