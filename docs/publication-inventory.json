@@ -1,0 +1,62 @@
+{
+  "reviewed_on": "2026-11-16",
+  "relocated_on": "2026-11-17",
+  "apps": [
+    {
+      "slug": "pFiles",
+      "name": "pFiles",
+      "project": ".",
+      "module": "app",
+      "package": "x.vladgba.files",
+      "min_sdk": "21",
+      "target_sdk": "35",
+      "version_name": "1.0.0",
+      "version_code": null,
+      "version_source": "version.properties",
+      "commit": "bede69623fe23a1f728e62041b7ea4e97543ee22",
+      "permissions": [
+        "android.permission.MANAGE_EXTERNAL_STORAGE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.REQUEST_INSTALL_PACKAGES",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "permission_scope": "main source manifest only",
+      "removed_permissions": [],
+      "allow_backup": "false",
+      "source_evidence": {
+        "network": [
+          "app/src/main/java/x/vladgba/files/pui/PAbout.kt"
+        ],
+        "storage": [
+          "app/src/main/java/x/vladgba/files/BatchRenameDialog.kt",
+          "app/src/main/java/x/vladgba/files/EditorActivity.kt",
+          "app/src/main/java/x/vladgba/files/HexActivity.kt",
+          "app/src/main/java/x/vladgba/files/MainActivity.kt",
+          "app/src/main/java/x/vladgba/files/MarkdownActivity.kt",
+          "app/src/main/java/x/vladgba/files/OpenActivity.kt",
+          "app/src/main/java/x/vladgba/files/SearchActivity.kt",
+          "app/src/main/java/x/vladgba/files/ViewerActivity.kt"
+        ],
+        "sharing": [
+          "app/src/main/java/x/vladgba/files/OpenActivity.kt",
+          "app/src/main/java/x/vladgba/files/Openers.kt"
+        ],
+        "learning_clipboard": [],
+        "speech_translation": []
+      },
+      "review_items": [
+        "Target SDK 35: below the current phone-app submission minimum of API 36, effective August 31, 2026 (extension ended November 1, 2026). See the official target API reference. Do not change a deliberate runtime target without redesign.",
+        "All-files access declaration and core-function eligibility review.",
+        "Package installation policy review and declaration where applicable.",
+        "Owner must confirm developer identity/contact, production support and privacy URLs, countries, pricing, ads, target age and content rating.",
+        "Audit runtime traffic, dependencies and final merged release manifest before signing off Data safety. Source manifest alone is not a complete data audit.",
+        "Create a signed release AAB, test the release on a device and complete the Play Console testing/review requirements applicable to this account. No release binary was built by this documentation task."
+      ],
+      "publication_files": {
+        "store": "store",
+        "site": "docs/site/index.md",
+        "privacy": "docs/privacy-policy-draft.md"
+      }
+    }
+  ]
+}

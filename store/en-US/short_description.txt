@@ -1,0 +1,1 @@
+A two-panel file manager with text, large-file and hex editing tools.
