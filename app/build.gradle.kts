@@ -14,7 +14,7 @@ android {
 
     defaultConfig {
         applicationId = "x.vladgba.files"
-        minSdk = 21
+        minSdk = 24
         targetSdk = 35
     }
 
@@ -55,5 +55,8 @@ kotlin {
 
 // No runtime dependencies: Android framework + Kotlin stdlib only. JUnit is for JVM unit tests and never ships.
 dependencies {
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
+    implementation("net.lingala.zip4j:zip4j:2.11.6")
     testImplementation("junit:junit:4.13.2")
 }

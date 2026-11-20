@@ -37,6 +37,7 @@ def unquote = { v -> v?.toString()?.trim()?.replaceAll(/^"(.*)"$/, '$1') }
 
 def findSigning = {
     def f = root.file('keystore.properties')
+    if (!f.exists()) f = new File('/sdcard/keys/keystore.properties')
     if (f.exists()) {
         def p = new Properties()
         f.withInputStream { p.load(it) }

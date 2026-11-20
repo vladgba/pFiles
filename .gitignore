@@ -40,3 +40,7 @@ app/release/*
 .agents/
 .agentsroom/
 .claude/
+.autoagents/
+attachments/
+previous-attempt-fileman/
+
