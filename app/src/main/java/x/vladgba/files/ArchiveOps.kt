@@ -33,21 +33,31 @@ object ArchiveOps {
 
     fun isApk(f: File): Boolean = !f.isDirectory && f.name.substringAfterLast('.', "").lowercase() == "apk"
 
+    fun needsPassword(f: File) = !isTar(f) && !isGzOnly(f) && PasswordZipOps.requiresPassword(f)
+
     fun readTree(f: File): ZipOps.ZipTree = when {
         isTar(f) -> TarOps.readTree(f)
         isGzOnly(f) -> GzOps.readTree(f)
+        needsPassword(f) -> PasswordZipOps.readTree(f)
         else -> ZipOps.openTree(f)
     }
 
-    fun extractEntry(archive: File, entryPath: String, dest: File) {
+    fun extractEntry(archive: File, entryPath: String, dest: File, password: CharArray? = null) {
         when {
             isTar(archive) -> TarOps.extractEntry(archive, entryPath, dest)
             isGzOnly(archive) -> GzOps.ungz(archive, dest)
+            needsPassword(archive) -> PasswordZipOps.extractEntry(archive, entryPath, dest,
+                password ?: throw IllegalArgumentException("Password required"))
             else -> ZipOps.extractEntry(archive, entryPath, dest)
         }
     }
 
-    fun extractAll(archive: File, destDir: File): Int = when {
+    fun extractSubtree(archive: File, entryPath: String, destDir: File, password: CharArray? = null): Int =
+        if (needsPassword(archive)) PasswordZipOps.extractSubtree(archive, entryPath, destDir,
+            password ?: throw IllegalArgumentException("Password required"))
+        else ZipOps.extractSubtree(archive, entryPath, destDir)
+
+    fun extractAll(archive: File, destDir: File, password: CharArray? = null): Int = when {
         isTar(archive) -> TarOps.untar(archive, destDir)
         isGzOnly(archive) -> {
             val innerName = archive.name.removeSuffix(".gz")
@@ -56,6 +66,8 @@ object ArchiveOps {
             GzOps.ungz(archive, target)
             0
         }
+        needsPassword(archive) -> PasswordZipOps.extractAll(archive, destDir,
+            password ?: throw IllegalArgumentException("Password required"))
         else -> ZipOps.unzip(archive, destDir)
     }
 }

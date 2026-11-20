@@ -56,6 +56,7 @@ class ZipActivity : Activity() {
 
     private var tree: ZipOps.ZipTree? = null
     private var currentDir = ""
+    private var password: CharArray? = null
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -324,6 +325,19 @@ class ZipActivity : Activity() {
     private fun loadTree() {
         progress.visibility = View.VISIBLE
         Thread {
+            val encrypted = try { ArchiveOps.needsPassword(file) } catch (_: Exception) { false }
+            if (encrypted && password == null) {
+                ui.post {
+                    if (!isFinishing) {
+                        progress.visibility = View.GONE
+                        ArchivePasswords.ask(this, file) { entered ->
+                            password = entered
+                            loadTree()
+                        }
+                    }
+                }
+                return@Thread
+            }
             val loaded = try {
                 ArchiveOps.readTree(file)
             } catch (_: Exception) {
@@ -348,7 +362,7 @@ class ZipActivity : Activity() {
     // ---------------------------------------------------------------- Entry actions
 
     private fun openEntry(entry: ZipOps.EntryInfo) {
-        val tempDir = File(cacheDir, "preview/${file.name}")
+        val tempDir = File(cacheDir, "preview/${file.absolutePath.hashCode()}-${file.lastModified()}")
         val target = File(tempDir, entry.path)
         if (target.exists()) {
             Openers.open(this, target)
@@ -358,7 +372,7 @@ class ZipActivity : Activity() {
         progress.visibility = View.VISIBLE
         Thread {
             val ok = try {
-                ArchiveOps.extractEntry(file, entry.path, target)
+                ArchiveOps.extractEntry(file, entry.path, target, password)
                 target.setReadable(true, false)
                 true
             } catch (_: Exception) {
@@ -399,7 +413,7 @@ class ZipActivity : Activity() {
     }
 
     private fun installEntry(entry: ZipOps.EntryInfo) {
-        val tempDir = File(cacheDir, "preview/${file.name}")
+        val tempDir = File(cacheDir, "preview/${file.absolutePath.hashCode()}-${file.lastModified()}")
         val target = File(tempDir, entry.path)
         if (target.exists()) {
             installApk(target)
@@ -409,7 +423,7 @@ class ZipActivity : Activity() {
         progress.visibility = View.VISIBLE
         Thread {
             val ok = try {
-                ArchiveOps.extractEntry(file, entry.path, target)
+                ArchiveOps.extractEntry(file, entry.path, target, password)
                 target.setReadable(true, false)
                 true
             } catch (_: Exception) {
@@ -430,7 +444,7 @@ class ZipActivity : Activity() {
     }
 
     private fun openEntryWith(entry: ZipOps.EntryInfo) {
-        val tempDir = File(cacheDir, "preview/${file.name}")
+        val tempDir = File(cacheDir, "preview/${file.absolutePath.hashCode()}-${file.lastModified()}")
         val target = File(tempDir, entry.path)
         if (target.exists()) {
             Openers.chooser(this, target)
@@ -440,7 +454,7 @@ class ZipActivity : Activity() {
         progress.visibility = View.VISIBLE
         Thread {
             val ok = try {
-                ArchiveOps.extractEntry(file, entry.path, target)
+                ArchiveOps.extractEntry(file, entry.path, target, password)
                 true
             } catch (_: Exception) {
                 target.delete()
@@ -465,11 +479,11 @@ class ZipActivity : Activity() {
             val ok = try {
                 if (entry.isDir) {
                     val targetDir = File(destFolder, entry.name)
-                    ZipOps.extractSubtree(file, entry.path, targetDir) == 0
+                    ArchiveOps.extractSubtree(file, entry.path, targetDir, password) == 0
                 } else {
                     if (!destFolder.isDirectory) destFolder.mkdirs()
                     val targetFile = File(destFolder, entry.name)
-                    ArchiveOps.extractEntry(file, entry.path, targetFile)
+                    ArchiveOps.extractEntry(file, entry.path, targetFile, password)
                     true
                 }
             } catch (_: Exception) {
@@ -495,7 +509,7 @@ class ZipActivity : Activity() {
 
         Thread {
             val ok = try {
-                ArchiveOps.extractAll(file, dest) == 0
+                ArchiveOps.extractAll(file, dest, password) == 0
             } catch (_: Exception) {
                 false
             }
