@@ -87,15 +87,17 @@ object SearchOps {
         while (stack.isNotEmpty() && !cancelled()) {
             val dir = stack.pop()
             if (!seen.add(canon(dir))) continue
-            val children = dir.listFiles() ?: continue
-            children.sortWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+            val children = (if (ShizukuFiles.useFor(dir)) ShizukuFiles.list(dir)
+                else dir.listFiles()?.map { Entry(it) }) ?: continue
+            val sorted = children.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
             val subdirs = ArrayList<File>()
-            for (f in children) {
+            for (entry in sorted) {
+                val f = entry.file
                 if (cancelled()) break
                 if (!q.includeHidden && f.name.startsWith(".")) continue
                 scanned++
                 if (scanned and 0xFF == 0) onScanned(scanned)
-                val isDir = f.isDirectory
+                val isDir = entry.isDir
                 if (isDir) subdirs += f
                 if (!q.nameMatches(f.name)) continue
                 val content = q.content
@@ -112,10 +114,10 @@ object SearchOps {
 
     /** First line of [f] matching [p], or null (also for binary, oversized or unreadable files). */
     fun findInFile(f: File, p: Pattern, cancelled: () -> Boolean = { false }): Hit? {
-        val len = f.length()
+        val len = ShizukuFiles.length(f)
         if (len == 0L || len > MAX_CONTENT_BYTES) return null
         return try {
-            f.inputStream().buffered(64 * 1024).use { input ->
+            ShizukuFiles.input(f).buffered(64 * 1024).use { input ->
                 input.mark(BINARY_PROBE)
                 val probe = ByteArray(BINARY_PROBE)
                 val n = input.read(probe)
