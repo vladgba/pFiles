@@ -31,7 +31,7 @@ class FilesProvider : ContentProvider() {
         for (c in reqCols) {
             when (c) {
                 OpenableColumns.DISPLAY_NAME -> { cols += c; vals += f.name }
-                OpenableColumns.SIZE -> { cols += c; vals += f.length() }
+                OpenableColumns.SIZE -> { cols += c; vals += ShizukuFiles.length(f) }
                 "_data" -> { cols += c; vals += f.absolutePath }
             }
         }
@@ -40,13 +40,16 @@ class FilesProvider : ContentProvider() {
 
     override fun getType(uri: Uri): String = Openers.mime(file(uri))
 
-    override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor =
-        ParcelFileDescriptor.open(file(uri), ParcelFileDescriptor.parseMode(mode))
+    override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
+        ShizukuFiles.awaitReady()
+        return (if (ShizukuFiles.useFor(file(uri))) ShizukuFiles.open(file(uri), ParcelFileDescriptor.parseMode(mode)) else null)
+            ?: ParcelFileDescriptor.open(file(uri), ParcelFileDescriptor.parseMode(mode))
+    }
 
     override fun openAssetFile(uri: Uri, mode: String): AssetFileDescriptor? {
         val f = file(uri)
         val pfd = openFile(uri, mode)
-        return AssetFileDescriptor(pfd, 0, f.length())
+        return AssetFileDescriptor(pfd, 0, ShizukuFiles.length(f))
     }
 
     override fun openTypedAssetFile(uri: Uri, mimeTypeFilter: String, opts: Bundle?): AssetFileDescriptor? =

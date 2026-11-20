@@ -3,11 +3,10 @@ package x.vladgba.files
 import java.io.File
 
 /** Snapshot of a file's attributes, taken once on the loader thread so sorting and binding never hit the disk. */
-class Entry(val file: File) {
-    val name: String = file.name
-    val isDir: Boolean = file.isDirectory
-    val size: Long = if (isDir) 0L else file.length()
-    val modified: Long = file.lastModified()
+class Entry(val file: File, val isDir: Boolean = file.isDirectory,
+            val size: Long = if (isDir) 0L else file.length(),
+            val modified: Long = file.lastModified(),
+            val name: String = file.name) {
     val ext: String = if (isDir) "" else name.substringAfterLast('.', "").lowercase()
 }
 

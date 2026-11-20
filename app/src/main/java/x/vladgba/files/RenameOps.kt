@@ -130,18 +130,21 @@ object RenameOps {
      * Returns the number of files that couldn't be renamed. Blocking.
      */
     fun apply(plan: Plan): Int {
+        fun move(src: File, dst: File) = if (ShizukuFiles.useFor(src)) ShizukuFiles.rename(src, dst)
+            else src.renameTo(dst)
         val todo = plan.renames
         var failed = 0
         val staged = ArrayList<Pair<Item, File>>()
         for ((i, item) in todo.withIndex()) {
             val tmp = File(item.file.parentFile, ".pfiles-rename-$i-${System.nanoTime()}")
-            if (item.file.renameTo(tmp)) staged += item to tmp else failed++
+            if (move(item.file, tmp)) staged += item to tmp else failed++
         }
         for ((item, tmp) in staged) {
             val target = File(item.file.parentFile, item.newName!!)
-            if (!target.exists() && tmp.renameTo(target)) continue
+            val occupied = if (ShizukuFiles.useFor(target)) FileOps.existsNoFollow(target) else target.exists()
+            if (!occupied && move(tmp, target)) continue
             failed++
-            if (!tmp.renameTo(item.file)) tmp.renameTo(FileOps.unique(item.file.parentFile!!, item.file.name))
+            if (!move(tmp, item.file)) move(tmp, FileOps.unique(item.file.parentFile!!, item.file.name))
         }
         return failed
     }

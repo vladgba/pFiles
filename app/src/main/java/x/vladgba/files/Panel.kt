@@ -56,6 +56,7 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
         fun onSelectionChanged(p: Panel)
         /** Folder, title or item count changed. */
         fun onLocationChanged(p: Panel)
+        fun onBreadcrumbLongPress(p: Panel, anchor: View, dir: File)
         fun onDrop(source: Panel, files: List<File>, target: File)
     }
 
@@ -67,6 +68,7 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
     private val crumbs: LinearLayout
     private val crumbScroll: HorizontalScrollView
     private val activeMark: View
+    private val tableHeader: LinearLayout
     private val infoView: TextView
     private val emptyView: TextView
     private val frame: FrameLayout
@@ -148,6 +150,25 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
             addView(activeMark, LayoutParams(MATCH_PARENT, dp(2)))
         }
 
+        tableHeader = LinearLayout(activity).apply {
+            orientation = HORIZONTAL
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            visibility = GONE
+            val columns = listOf(
+                R.string.sort_name to 0.55f,
+                R.string.sort_size to 0.18f,
+                R.string.sort_date to 0.27f,
+            )
+            columns.forEach { (label, weight) ->
+                addView(TextView(activity).apply {
+                    setText(label)
+                    setTextColor(Ui.fgDim(activity))
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                    setSingleLine()
+                }, LayoutParams(0, WRAP_CONTENT, weight))
+            }
+        }
+
         emptyView = TextView(activity).apply {
             gravity = Gravity.CENTER
             setPadding(dp(32), dp(32), dp(32), dp(32))
@@ -182,6 +203,7 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
         }
 
         addView(header, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        addView(tableHeader, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         addView(frame, LayoutParams(MATCH_PARENT, 0, 1f))
     }
 
@@ -234,9 +256,15 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
         renderCrumbs()
         host.busy(true)
         host.loader.execute {
-            val entries = dir.listFiles()
+            val entries = (when {
+                InstalledApps.isRoot(dir) -> InstalledApps.entries(activity)
+                ShizukuFiles.useFor(dir) -> ShizukuFiles.list(dir)
+                else -> dir.listFiles()?.map { Entry(it) }
+            })
+                ?.let { files -> if (dir.path == "/" && files.none { InstalledApps.isRoot(it.file) })
+                    files + Entry(InstalledApps.ROOT, true, 0, 0, activity.getString(R.string.installed_apps))
+                    else files }
                 ?.filter { hidden || !it.name.startsWith(".") }
-                ?.map(::Entry)
                 ?.sortedWith(cmp)
             ui.post {
                 host.busy(false)
@@ -274,6 +302,7 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
                 setBackgroundResource(Ui.attrRes(activity, android.R.attr.selectableItemBackground))
                 if (i == chain.lastIndex) setTypeface(typeface, Typeface.BOLD)
                 setOnClickListener { if (dir != cwd) navigate(dir) }
+                setOnLongClickListener { host.onBreadcrumbLongPress(this@Panel, this, dir); true }
             })
         }
         title = chain.last().first
@@ -282,12 +311,13 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
     }
 
     /** One GridView serves both modes: a single stretched column is the list, auto-fit tiles are the grid. */
-    fun applyViewMode(grid: Boolean) {
+    fun applyViewMode(style: Int) {
         val pos = list.firstVisiblePosition
         finishSelection()
-        if (grid) {
+        tableHeader.visibility = if (style == 4) VISIBLE else GONE
+        if (style >= 2 && style <= 3) {
             list.numColumns = GridView.AUTO_FIT
-            list.columnWidth = dp(104)
+            list.columnWidth = dp(if (style == 3) 160 else 104)
             list.stretchMode = GridView.STRETCH_COLUMN_WIDTH
             list.horizontalSpacing = dp(4)
             list.verticalSpacing = dp(4)
@@ -299,7 +329,7 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
             list.verticalSpacing = 0
             list.setPadding(0, 0, 0, 0)
         }
-        adapter.grid = grid
+        adapter.style = style
         list.setSelection(pos)
     }
 
@@ -316,6 +346,10 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
 
     /** Long-press selects the item (tap toggles it afterwards) and arms a drag of the whole selection. */
     private fun onItemLongClick(pos: Int): Boolean {
+        if (InstalledApps.isRoot(cwd)) {
+            host.onOpen(this, adapter.getItem(pos))
+            return true
+        }
         if (!selecting) startSelection()
         list.setItemChecked(pos, true)
         host.onSelectionChanged(this)

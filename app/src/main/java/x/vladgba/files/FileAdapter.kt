@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.text.TextUtils
 import android.text.format.Formatter
 import android.util.TypedValue
@@ -29,7 +30,7 @@ class FileAdapter(private val ctx: Context) : BaseAdapter() {
     val total get() = all.size
 
     /** Grid (icon tiles) vs list (rows). Both layouts are recycled separately via view types. */
-    var grid = false
+    var style = 0
         set(v) { field = v; notifyDataSetChanged() }
 
     fun setData(d: List<Entry>) { all = d; refilter() }
@@ -47,13 +48,22 @@ class FileAdapter(private val ctx: Context) : BaseAdapter() {
     /** Whether a position is selected. Recycled views keep their old highlight otherwise. */
     var isChecked: (Int) -> Boolean = { false }
 
-    override fun getViewTypeCount() = 2
-    override fun getItemViewType(position: Int) = if (grid) 1 else 0
+    override fun getViewTypeCount() = 5
+    override fun getItemViewType(position: Int) = style
 
     override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
         val e = shown[position]
-        if (grid) {
-            val cell = convertView as? Cell ?: Cell(ctx)
+        if (style == 4) {
+            val row = convertView as? TableLine ?: TableLine(ctx)
+            row.badge.set(e)
+            row.name.text = e.name
+            row.size.text = if (e.isDir) "" else Formatter.formatShortFileSize(ctx, e.size)
+            row.date.text = dateFmt.format(Date(e.modified))
+            row.isActivated = isChecked(position)
+            return row
+        }
+        if (style >= 2) {
+            val cell = convertView as? Cell ?: Cell(ctx, style == 3)
             cell.badge.set(e)
             cell.name.text = e.name
             cell.meta.text = if (e.isDir) "" else Formatter.formatShortFileSize(ctx, e.size)
@@ -61,17 +71,52 @@ class FileAdapter(private val ctx: Context) : BaseAdapter() {
             cell.isActivated = isChecked(position)
             return cell
         }
-        val row = convertView as? Row ?: Row(ctx)
+        val compact = style == 1
+        val row = convertView as? Row ?: Row(ctx, compact)
         row.badge.set(e)
         row.name.text = e.name
         val date = dateFmt.format(Date(e.modified))
         row.meta.text = if (e.isDir) date else Formatter.formatShortFileSize(ctx, e.size) + "  ·  " + date
+        row.meta.visibility = if (compact) View.GONE else View.VISIBLE
         row.isActivated = isChecked(position)
         return row
     }
 
+    private class TableLine(ctx: Context) : LinearLayout(ctx) {
+        val badge = Badge(ctx)
+        val name = TextView(ctx)
+        val size = TextView(ctx)
+        val date = TextView(ctx)
+
+        init {
+            val d = resources.displayMetrics.density
+            fun dp(v: Int) = (v * d).toInt()
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(42)
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            val tv = TypedValue()
+            ctx.theme.resolveAttribute(android.R.attr.activatedBackgroundIndicator, tv, true)
+            setBackgroundResource(tv.resourceId)
+            listOf(name, size, date).forEach {
+                it.setSingleLine()
+                it.ellipsize = TextUtils.TruncateAt.END
+                it.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            }
+            val nameBox = LinearLayout(ctx).apply {
+                orientation = HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(badge, LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(5) })
+                addView(name, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+            }
+            addView(nameBox, LayoutParams(0, LayoutParams.WRAP_CONTENT, 0.55f))
+            addView(size, LayoutParams(0, LayoutParams.WRAP_CONTENT, 0.18f))
+            addView(date, LayoutParams(0, LayoutParams.WRAP_CONTENT, 0.27f))
+        }
+    }
+
     @SuppressLint("ResourceType") // obtainStyledAttributes index, not a resource id
-    private class Cell(ctx: Context) : LinearLayout(ctx) {
+    private class Cell(ctx: Context, large: Boolean) : LinearLayout(ctx) {
         val badge = Badge(ctx)
         val name = TextView(ctx)
         val meta = TextView(ctx)
@@ -81,7 +126,7 @@ class FileAdapter(private val ctx: Context) : BaseAdapter() {
             fun dp(v: Int) = (v * d).toInt()
             orientation = VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            minimumHeight = dp(112)
+            minimumHeight = dp(if (large) 160 else 112)
             setPadding(dp(6), dp(10), dp(6), dp(8))
             val tv = TypedValue()
             ctx.theme.resolveAttribute(android.R.attr.activatedBackgroundIndicator, tv, true)
@@ -100,14 +145,14 @@ class FileAdapter(private val ctx: Context) : BaseAdapter() {
             meta.gravity = Gravity.CENTER_HORIZONTAL
             meta.setSingleLine()
 
-            addView(badge, LayoutParams(dp(52), dp(52)).apply { bottomMargin = dp(6) })
+            addView(badge, LayoutParams(dp(if (large) 88 else 52), dp(if (large) 88 else 52)).apply { bottomMargin = dp(6) })
             addView(name, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
             addView(meta, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         }
     }
 
     @SuppressLint("ResourceType") // obtainStyledAttributes index, not a resource id
-    private class Row(ctx: Context) : LinearLayout(ctx) {
+    private class Row(ctx: Context, compact: Boolean) : LinearLayout(ctx) {
         val badge = Badge(ctx)
         val name = TextView(ctx)
         val meta = TextView(ctx)
@@ -117,8 +162,9 @@ class FileAdapter(private val ctx: Context) : BaseAdapter() {
             fun dp(v: Int) = (v * d).toInt()
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(60)
-            setPadding(dp(16), dp(8), dp(16), dp(8))
+            minimumHeight = dp(if (compact) 40 else 60)
+            setPadding(dp(if (compact) 8 else 16), dp(if (compact) 4 else 8),
+                dp(if (compact) 8 else 16), dp(if (compact) 4 else 8))
             val tv = TypedValue()
             ctx.theme.resolveAttribute(android.R.attr.activatedBackgroundIndicator, tv, true)
             setBackgroundResource(tv.resourceId)
@@ -128,13 +174,15 @@ class FileAdapter(private val ctx: Context) : BaseAdapter() {
             meta.setTextColor(a.getColorStateList(1))
             a.recycle()
 
-            name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            name.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (compact) 14f else 16f)
             name.setSingleLine()
             name.ellipsize = TextUtils.TruncateAt.MIDDLE
             meta.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             meta.setSingleLine()
 
-            addView(badge, LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(16) })
+            addView(badge, LayoutParams(dp(if (compact) 28 else 40), dp(if (compact) 28 else 40)).apply {
+                marginEnd = dp(if (compact) 8 else 16)
+            })
             val col = LinearLayout(ctx).apply {
                 orientation = VERTICAL
                 addView(name)
@@ -155,19 +203,40 @@ class FileAdapter(private val ctx: Context) : BaseAdapter() {
         private val r = RectF()
         private var dir = false
         private var label = ""
+        private var appPackage: String? = null
+        private var appIcon: Drawable? = null
 
         fun set(isDir: Boolean, ext: String) {
+            appPackage = null
+            appIcon = null
             dir = isDir
             label = ext.take(4).uppercase()
             fill.color = Kinds.color(isDir, ext)
             invalidate()
         }
 
-        fun set(e: Entry) = set(e.isDir, e.ext)
+        fun set(e: Entry) {
+            set(e.isDir, e.ext)
+            InstalledApps.packageFor(e.file)?.let { pkg ->
+                appPackage = pkg
+                AppIcons.bind(context, pkg, this)
+            }
+        }
+
+        fun showAppIcon(pkg: String, icon: Drawable?) {
+            if (appPackage != pkg) return // this recycled row now shows another app
+            appIcon = icon
+            invalidate()
+        }
 
         override fun onDraw(c: Canvas) {
             val w = width.toFloat()
             val h = height.toFloat()
+            appIcon?.let {
+                it.setBounds(0, 0, width, height)
+                it.draw(c)
+                return
+            }
             val rad = w * 0.1f
             if (dir) {
                 r.set(w * 0.04f, h * 0.14f, w * 0.48f, h * 0.36f); c.drawRoundRect(r, rad, rad, fill)

@@ -7,6 +7,9 @@ import x.vladgba.files.pui.showPAbout
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.graphics.Color
@@ -63,8 +66,6 @@ class MainActivity : Activity(), Panel.Host {
     private lateinit var selectIcons: LinearLayout
     private val selButtons = HashMap<Int, ImageView>()
     private lateinit var pasteButton: ImageView
-    private lateinit var viewButton: ImageView
-    private lateinit var hiddenButton: ImageView
     private lateinit var dualButton: ImageView
     private lateinit var searchRow: LinearLayout
     private lateinit var searchInput: EditText
@@ -77,8 +78,9 @@ class MainActivity : Activity(), Panel.Host {
     private var sortDesc = false
     override var showHidden = false
         private set
-    private var gridMode = false
+    private var viewStyle = 0
     private var dualMode = false
+    private var pendingShizukuDir: File? = null
 
     // ---------------------------------------------------------------- lifecycle
 
@@ -88,7 +90,7 @@ class MainActivity : Activity(), Panel.Host {
         sortMode = prefs.getInt("sort", SORT_NAME)
         sortDesc = prefs.getBoolean("desc", false)
         showHidden = prefs.getBoolean("hidden", false)
-        gridMode = prefs.getBoolean("grid", false)
+        viewStyle = prefs.getInt("view_style", if (prefs.getBoolean("grid", false)) 2 else 0).coerceIn(0, 4)
         dualMode = prefs.getBoolean("dual", false)
         activeIndex = (state?.getInt("active") ?: prefs.getInt("active", 0)).coerceIn(0, 1)
         roots = Storage.roots(this)
@@ -97,7 +99,7 @@ class MainActivity : Activity(), Panel.Host {
         val first = startDir(state?.getString("cwd") ?: prefs.getString("cwd", null), Storage.primary())
         panels[0].start(first)
         panels[1].start(startDir(state?.getString("cwd2") ?: prefs.getString("cwd2", null), first))
-        panels.forEach { it.applyViewMode(gridMode) }
+        panels.forEach { it.applyViewMode(viewStyle) }
         applyPaneLayout()
         refreshBar()
         // Copy/cut list survives the activity being rebuilt (theme switch, process death while in background).
@@ -108,10 +110,19 @@ class MainActivity : Activity(), Panel.Host {
         }
     }
 
-    private fun startDir(path: String?, fallback: File) = path?.let(::File)?.takeIf { it.isDirectory } ?: fallback
+    private fun startDir(path: String?, fallback: File) = path?.let(::File) ?: fallback
 
     override fun onResume() {
         super.onResume()
+        ShizukuFiles.onChange = {
+            roots = Storage.roots(this)
+            banner.visibility = if (Storage.hasAccess(this)) View.GONE else View.VISIBLE
+            val pending = pendingShizukuDir
+            if (pending != null && ShizukuFiles.available()) {
+                pendingShizukuDir = null
+                active.navigate(pending)
+            } else loadShown()
+        }
         roots = Storage.roots(this)
         val ok = Storage.hasAccess(this)
         banner.visibility = if (ok) View.GONE else View.VISIBLE
@@ -138,6 +149,7 @@ class MainActivity : Activity(), Panel.Host {
 
     override fun onDestroy() {
         super.onDestroy()
+        ShizukuFiles.onChange = null
         loader.shutdownNow()
         worker.shutdown() // let a running paste finish
     }
@@ -212,7 +224,7 @@ class MainActivity : Activity(), Panel.Host {
     //   ...list...                    |  ...list...              second panel: side by side in landscape,
     //                                                            stacked in portrait, hidden in one-panel mode
     //   [ search field (when open)                     ✕ ]
-    //   [ 🔍  📁+  📄+  ⇅  ▦  👁  💾  ⟳  📋              ]   every action is an icon, within thumb reach
+    //   [ search | new | panels | storage | refresh | paste | settings ]
 
     private fun primaryColor() = TypedValue().also { theme.resolveAttribute(android.R.attr.colorPrimary, it, true) }.data
 
@@ -242,23 +254,17 @@ class MainActivity : Activity(), Panel.Host {
             addView(barIcon(R.drawable.ic_close, R.string.close) { closeSearch() }, LinearLayout.LayoutParams(dp(44), dp(44)))
         }
         pasteButton = barIcon(R.drawable.ic_paste, R.string.paste_short) { paste() }.apply { visibility = View.GONE }
-        viewButton = barIcon(R.drawable.ic_view_grid, R.string.view_grid) { onMenuItem(M_VIEW) }
-        hiddenButton = barIcon(R.drawable.ic_hidden, R.string.show_hidden) { onMenuItem(M_HIDDEN) }
         dualButton = barIcon(R.drawable.ic_dual_pane, R.string.two_panels) { onMenuItem(M_DUAL) }
         normalIcons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             listOf(
                 barIcon(R.drawable.ic_find, R.string.search) { openSearch() },
-                barIcon(R.drawable.ic_new_folder, R.string.new_folder) { onMenuItem(M_NEW_DIR) },
-                barIcon(R.drawable.ic_new_file, R.string.new_file) { onMenuItem(M_NEW_FILE) },
-                barIcon(R.drawable.ic_sort, R.string.sort) { showSortMenu(it) },
+                barIcon(R.drawable.ic_new_folder, R.string.new_item) { showNewMenu(it) },
                 dualButton,
-                viewButton,
-                hiddenButton,
                 barIcon(R.drawable.ic_storage, R.string.storage) { showStorageMenu(it) },
                 barIcon(R.drawable.ic_refresh, R.string.refresh) { onMenuItem(M_REFRESH) },
                 pasteButton,
-                barIcon(R.drawable.p_ic_info, R.string.about) { showPAbout(PAboutInfo(repo = "pFiles")) },
+                barIcon(R.drawable.ic_more, R.string.settings) { showSettingsMenu(it) },
             ).forEach { addView(it, LinearLayout.LayoutParams(0, dp(48), 1f)) }
         }
         // Selection actions replace the normal icons while items are selected (no top action bar).
@@ -319,7 +325,8 @@ class MainActivity : Activity(), Panel.Host {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQ_SEARCH || resultCode != RESULT_OK) return
-        val dir = data?.getStringExtra(Openers.EXTRA_PATH)?.let(::File)?.takeIf { it.isDirectory } ?: return
+        val dir = data?.getStringExtra(Openers.EXTRA_PATH)?.let(::File)
+            ?.takeIf { ShizukuFiles.isDirectory(it) } ?: return
         active.navigate(dir)
     }
 
@@ -330,15 +337,11 @@ class MainActivity : Activity(), Panel.Host {
         (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(searchInput.windowToken, 0)
     }
 
-    /** Icon states: paste only with something to paste, view/hidden show their current setting. */
+    /** Icon states: paste only with something to paste, dual shows its current setting. */
     private fun refreshBar() {
         if (!::pasteButton.isInitialized) return
         pasteButton.visibility = if (clip.isEmpty()) View.GONE else View.VISIBLE
         pasteButton.contentDescription = getString(R.string.paste, clip.size)
-        // The view icon shows the mode you switch *to*.
-        viewButton.setImageResource(if (gridMode) R.drawable.ic_view_list else R.drawable.ic_view_grid)
-        viewButton.contentDescription = getString(if (gridMode) R.string.view_list else R.string.view_grid)
-        hiddenButton.imageAlpha = if (showHidden) 255 else 110
         dualButton.imageAlpha = if (dualMode) 255 else 110
         updateInfo()
     }
@@ -362,24 +365,73 @@ class MainActivity : Activity(), Panel.Host {
         }
     }
 
-    private fun showSortMenu(anchor: View) {
-        val p = PopupMenu(this, anchor)
-        p.menu.apply {
-            add(1, M_SORT_NAME, 0, R.string.sort_name)
-            add(1, M_SORT_SIZE, 1, R.string.sort_size)
-            add(1, M_SORT_DATE, 2, R.string.sort_date)
-            add(1, M_SORT_TYPE, 3, R.string.sort_type)
-            setGroupCheckable(1, true, true)
-            findItem(M_SORT_NAME + sortMode).isChecked = true
-            add(2, M_DESC, 4, R.string.descending).apply { isCheckable = true; isChecked = sortDesc }
+    private fun showNewMenu(anchor: View) {
+        val popup = PopupMenu(this, anchor)
+        popup.menu.add(0, M_NEW_DIR, 0, R.string.new_folder)
+        popup.menu.add(0, M_NEW_FILE, 1, R.string.new_file)
+        popup.setOnMenuItemClickListener { onMenuItem(it.itemId) }
+        popup.show()
+    }
+
+    private fun showSettingsMenu(anchor: View) {
+        val popup = PopupMenu(this, anchor)
+        val sort = popup.menu.addSubMenu(0, M_SORT, 0, R.string.sort)
+        sort.add(1, M_SORT_NAME, 0, R.string.sort_name)
+        sort.add(1, M_SORT_SIZE, 1, R.string.sort_size)
+        sort.add(1, M_SORT_DATE, 2, R.string.sort_date)
+        sort.add(1, M_SORT_TYPE, 3, R.string.sort_type)
+        sort.setGroupCheckable(1, true, true)
+        sort.findItem(M_SORT_NAME + sortMode).isChecked = true
+        sort.add(2, M_DESC, 4, R.string.descending).apply {
+            isCheckable = true
+            isChecked = sortDesc
         }
-        p.setOnMenuItemClickListener { onMenuItem(it.itemId) }
-        p.show()
+        val view = popup.menu.addSubMenu(0, M_VIEW, 1, R.string.view_style)
+        val labels = intArrayOf(R.string.view_details, R.string.view_compact, R.string.view_grid,
+            R.string.view_large_icons, R.string.view_table)
+        labels.forEachIndexed { style, label ->
+            view.add(3, M_VIEW_BASE + style, style, label).isCheckable = true
+        }
+        view.setGroupCheckable(3, true, true)
+        view.findItem(M_VIEW_BASE + viewStyle).isChecked = true
+        popup.menu.add(0, M_HIDDEN, 2, R.string.show_hidden).apply {
+            isCheckable = true
+            isChecked = showHidden
+        }
+        popup.menu.add(0, M_DEFAULT_APPS, 3, R.string.default_apps)
+        popup.menu.add(0, M_SETTINGS, 4, R.string.settings)
+        popup.menu.add(0, M_ABOUT, 5, R.string.about)
+        popup.setOnMenuItemClickListener { item ->
+            when {
+                item.itemId in M_VIEW_BASE until M_VIEW_BASE + labels.size -> {
+                    viewStyle = item.itemId - M_VIEW_BASE
+                    prefs.edit().putInt("view_style", viewStyle).apply()
+                    panels.forEach { it.applyViewMode(viewStyle) }
+                    true
+                }
+                item.itemId == M_DEFAULT_APPS -> {
+                    SettingsDialog.showDefaultApps(this) { refreshFromSettings() }
+                    true
+                }
+                item.itemId == M_SETTINGS -> {
+                    SettingsDialog.showSettings(this) { refreshFromSettings() }
+                    true
+                }
+                item.itemId == M_ABOUT -> {
+                    showPAbout(PAboutInfo(repo = "pFiles"))
+                    true
+                }
+                else -> onMenuItem(item.itemId)
+            }
+        }
+        popup.show()
     }
 
     private fun showStorageMenu(anchor: View) {
         val p = PopupMenu(this, anchor)
         roots.forEachIndexed { i, r -> p.menu.add(0, M_ROOT_BASE + i, i, r.label) }
+        p.menu.add(0, M_SHIZUKU, roots.size, if (ShizukuFiles.available())
+            R.string.shizuku_connected else R.string.shizuku_access)
         p.setOnMenuItemClickListener { onMenuItem(it.itemId) }
         p.show()
     }
@@ -432,11 +484,76 @@ class MainActivity : Activity(), Panel.Host {
     }
 
     override fun onOpen(p: Panel, e: Entry) {
+        if (InstalledApps.isRoot(p.cwd)) {
+            InstalledApps.showBackup(this, e.file.name,
+                { dir ->
+                    if (ShizukuFiles.available()) p.navigate(dir)
+                    else {
+                        pendingShizukuDir = dir
+                        ShizukuFiles.request(this)
+                    }
+                },
+                { selection -> runOp { InstalledApps.backup(this, selection) } })
+            return
+        }
         if (e.isDir) p.navigate(e.file) else Openers.open(this, e.file)
     }
 
     override fun onLocationChanged(p: Panel) {
         updateInfo() // every panel shows its own count
+    }
+
+    override fun onBreadcrumbLongPress(p: Panel, anchor: View, dir: File) {
+        val menu = PopupMenu(this, anchor)
+        menu.menu.add(0, 1, 0, R.string.edit)
+        menu.menu.add(0, 2, 1, R.string.copy)
+        menu.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                1 -> editPath(p, dir)
+                2 -> copyPath(dir)
+            }
+            true
+        }
+        menu.show()
+    }
+
+    private fun editPath(panel: Panel, dir: File) {
+        val input = EditText(this).apply {
+            setSingleLine()
+            setText(dir.absolutePath)
+            setSelection(text.length)
+        }
+        val box = FrameLayout(this).apply {
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(input)
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.edit_path)
+            .setView(box)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val path = input.text.toString().trim()
+                val target = try { File(path).let { if (it.isAbsolute) it else File(dir, path) }.canonicalFile }
+                    catch (_: IOException) { null }
+                if (target != null && ShizukuFiles.isDirectory(target)) {
+                    panel.navigate(target)
+                    dialog.dismiss()
+                } else {
+                    input.error = getString(R.string.invalid_folder_path)
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun copyPath(file: File) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.prop_path), file.absolutePath))
+        toast(R.string.copied_text)
     }
 
     override fun onSelectionChanged(p: Panel) {
@@ -485,23 +602,18 @@ class MainActivity : Activity(), Panel.Host {
                 val f = File(active.cwd, name)
                 when {
                     FileOps.existsNoFollow(f) -> toast(R.string.exists)
-                    !f.mkdir() -> toast(R.string.failed)
+                    !(if (ShizukuFiles.useFor(f)) ShizukuFiles.mkdir(f) else f.mkdir()) -> toast(R.string.failed)
                     else -> loadShown()
                 }
             }
             id == M_NEW_FILE -> prompt(R.string.new_file, "") { name ->
                 val f = File(active.cwd, name)
-                val ok = try { f.createNewFile() } catch (e: IOException) { false }
-                if (f.exists() && !ok) toast(R.string.exists) else if (!ok) toast(R.string.failed) else loadShown()
+                val ok = try { if (ShizukuFiles.useFor(f)) ShizukuFiles.create(f) else f.createNewFile() }
+                    catch (e: IOException) { false }
+                if (FileOps.existsNoFollow(f) && !ok) toast(R.string.exists) else if (!ok) toast(R.string.failed) else loadShown()
             }
             id in M_SORT_NAME..M_SORT_TYPE -> { sortMode = id - M_SORT_NAME; savePrefs(); loadShown() }
             id == M_DESC -> { sortDesc = !sortDesc; savePrefs(); loadShown() }
-            id == M_VIEW -> {
-                gridMode = !gridMode
-                prefs.edit().putBoolean("grid", gridMode).apply()
-                panels.forEach { it.applyViewMode(gridMode) }
-                refreshBar()
-            }
             id == M_DUAL -> {
                 dualMode = !dualMode
                 prefs.edit().putBoolean("dual", dualMode).apply()
@@ -512,10 +624,33 @@ class MainActivity : Activity(), Panel.Host {
             }
             id == M_HIDDEN -> { showHidden = !showHidden; savePrefs(); refreshBar(); loadShown() }
             id == M_REFRESH -> loadShown()
+            id == M_SHIZUKU -> ShizukuFiles.request(this)
+            id == M_DEFAULT_APPS -> SettingsDialog.showDefaultApps(this) { refreshFromSettings() }
+            id == M_SETTINGS -> SettingsDialog.showSettings(this) { refreshFromSettings() }
             id >= M_ROOT_BASE -> roots.getOrNull(id - M_ROOT_BASE)?.let { active.navigate(it.dir) }
             else -> return false // submenu headers: let the popup open the submenu
         }
         return true
+    }
+
+    fun refreshFromSettings() {
+        sortMode = prefs.getInt("sort", SORT_NAME)
+        sortDesc = prefs.getBoolean("desc", false)
+        showHidden = prefs.getBoolean("hidden", false)
+        val newViewStyle = prefs.getInt("view_style", 0).coerceIn(0, 4)
+        if (newViewStyle != viewStyle) {
+            viewStyle = newViewStyle
+            panels.forEach { it.applyViewMode(viewStyle) }
+        }
+        val newDualMode = prefs.getBoolean("dual", false)
+        if (newDualMode != dualMode) {
+            dualMode = newDualMode
+            if (!dualMode) other.finishSelection()
+            applyPaneLayout()
+            if (dualMode) other.load()
+        }
+        refreshBar()
+        loadShown()
     }
 
     private fun savePrefs() {
@@ -566,6 +701,7 @@ class MainActivity : Activity(), Panel.Host {
         val p = PopupMenu(this, anchor)
         p.menu.add(0, A_BATCH_RENAME, 0, R.string.rename_by_pattern)
         p.menu.add(0, A_ZIP, 1, R.string.zip_compress)
+        p.menu.add(0, A_ZIP_ENCRYPTED, 2, R.string.zip_compress_encrypted)
         if (dualMode) {
             p.menu.add(0, A_COPY_OTHER, 4, R.string.copy_to_other)
             p.menu.add(0, A_MOVE_OTHER, 5, R.string.move_to_other)
@@ -579,6 +715,7 @@ class MainActivity : Activity(), Panel.Host {
             when (item.itemId) {
                 A_BATCH_RENAME -> batchRename(sel.map { it.file })
                 A_ZIP -> compress(sel.map { it.file })
+                A_ZIP_ENCRYPTED -> compress(sel.map { it.file }, encrypted = true)
                 A_ZIP_PREVIEW -> ZipModule.open(this, sel[0].file)
                 A_UNZIP -> extract(sel[0].file)
                 A_COPY_OTHER, A_MOVE_OTHER -> {
@@ -609,7 +746,7 @@ class MainActivity : Activity(), Panel.Host {
     // ---------------------------------------------------------------- zip / unzip
 
     /** Asks for the archive name (one item: its name; several: the folder's), then packs into the current folder. */
-    private fun compress(files: List<File>) {
+    private fun compress(files: List<File>, encrypted: Boolean = false) {
         val dir = active.cwd
         val one = files.singleOrNull()
         val base = when {
@@ -623,21 +760,51 @@ class MainActivity : Activity(), Panel.Host {
             when {
                 !FileOps.validName(name) -> toast(R.string.bad_name)
                 FileOps.existsNoFollow(out) -> toast(R.string.exists)
-                else -> runOp { ZipOps.zip(files, out) }
+                else -> {
+                    if (encrypted) ArchivePasswords.choose(this) { password ->
+                        compressTo(files, out, password)
+                    } else compressTo(files, out, null)
+                }
             }
+        }
+    }
+
+    private fun compressTo(files: List<File>, out: File, password: CharArray?) {
+        runOp {
+            try {
+                if (ShizukuFiles.useFor(out)) ShizukuFiles.zip(files, out, password) ?: 1
+                else if (password == null) ZipOps.zip(files, out)
+                else PasswordZipOps.create(files, out, password)
+            } finally { password?.fill('\u0000') }
         }
     }
 
     /** Extracts into a new folder named after the archive, next to it ("a.zip" -> "a", or "a (1)" if taken). */
     private fun extract(archive: File) {
+        worker.execute {
+            val encrypted = try {
+                if (ShizukuFiles.useFor(archive)) ShizukuFiles.archiveNeedsPassword(archive)
+                else ArchiveOps.needsPassword(archive)
+            } catch (_: Exception) { false }
+            ui.post {
+                if (isFinishing || isDestroyed) return@post
+                if (encrypted) ArchivePasswords.ask(this, archive) { extractWithPassword(archive, it) }
+                else extractWithPassword(archive, null)
+            }
+        }
+    }
+
+    private fun extractWithPassword(archive: File, password: CharArray?) {
         val parent = archive.parentFile ?: return
         val dest = FileOps.unique(parent, archive.name.substringBeforeLast('.').ifEmpty { archive.name })
         runOp {
             try {
-                ArchiveOps.extractAll(archive, dest)
+                if (ShizukuFiles.useFor(archive)) ShizukuFiles.extract(archive, dest, password) ?: 1
+                    else ArchiveOps.extractAll(archive, dest, password)
             } finally {
+                password?.fill('\u0000')
                 // Nothing usable came out (empty, unreadable or failed archive): don't leave an empty folder behind.
-                if (dest.list()?.isEmpty() == true) dest.delete()
+                if (!ShizukuFiles.useFor(dest) && dest.list()?.isEmpty() == true) dest.delete()
             }
         }
     }
@@ -675,7 +842,7 @@ class MainActivity : Activity(), Panel.Host {
         val caseOnly = name.equals(f.name, ignoreCase = true)
         when {
             !caseOnly && FileOps.existsNoFollow(target) -> toast(R.string.exists)
-            !f.renameTo(target) -> toast(R.string.failed)
+            !(if (ShizukuFiles.useFor(f)) ShizukuFiles.rename(f, target) else f.renameTo(target)) -> toast(R.string.failed)
             else -> loadShown()
         }
     }
@@ -736,7 +903,10 @@ class MainActivity : Activity(), Panel.Host {
         busy(true)
         worker.execute {
             val (count, bytes) = FileOps.stats(f)
-            val perms = (if (f.canRead()) "r" else "-") + (if (f.canWrite()) "w" else "-") + (if (f.canExecute()) "x" else "-")
+            val remote = ShizukuFiles.stat(f)
+            val perms = (if (remote?.optBoolean("read") ?: f.canRead()) "r" else "-") +
+                (if (remote?.optBoolean("write") ?: f.canWrite()) "w" else "-") +
+                (if (remote?.optBoolean("execute") ?: f.canExecute()) "x" else "-")
             val text = buildString {
                 fun field(label: Int, value: String) {
                     if (isNotEmpty()) append("\n\n")
@@ -745,13 +915,14 @@ class MainActivity : Activity(), Panel.Host {
                 field(R.string.prop_path, f.absolutePath)
                 field(R.string.prop_size, getString(R.string.prop_size_value,
                     Formatter.formatFileSize(this@MainActivity, bytes), "%,d".format(bytes)))
-                if (f.isDirectory) {
+                if (remote?.optBoolean("dir") ?: f.isDirectory) {
                     val n = count.toInt()
                     field(R.string.prop_contains, resources.getQuantityString(R.plurals.files, n, n))
                 } else {
                     field(R.string.prop_type, Openers.mime(f))
                 }
-                field(R.string.prop_modified, DateFormat.getDateTimeInstance().format(Date(f.lastModified())))
+                field(R.string.prop_modified, DateFormat.getDateTimeInstance().format(
+                    Date(remote?.optLong("modified") ?: f.lastModified())))
                 val access = if (FileOps.isLink(f)) getString(R.string.prop_symlink, perms, f.canonicalPath) else perms
                 field(R.string.prop_access, access)
             }
@@ -759,6 +930,7 @@ class MainActivity : Activity(), Panel.Host {
                 if (isFinishing || isDestroyed) return@post
                 busy(false)
                 AlertDialog.Builder(this).setTitle(f.name).setMessage(text)
+                    .setNeutralButton(R.string.copy_path) { _, _ -> copyPath(f) }
                     .setPositiveButton(android.R.string.ok, null).show()
             }
         }
@@ -784,7 +956,12 @@ class MainActivity : Activity(), Panel.Host {
         const val M_STORAGE = 21
         const val M_REFRESH = 22
         const val M_VIEW = 23
-        const val M_DUAL = 24
+        const val M_SHIZUKU = 24
+        const val M_DUAL = 25
+        const val M_VIEW_BASE = 30
+        const val M_ABOUT = 40
+        const val M_SETTINGS = 41
+        const val M_DEFAULT_APPS = 42
         const val M_ROOT_BASE = 100
 
         const val A_COPY = 1
@@ -803,6 +980,7 @@ class MainActivity : Activity(), Panel.Host {
         const val A_ZIP_PREVIEW = 14
         const val A_COPY_OTHER = 15
         const val A_MOVE_OTHER = 16
+        const val A_ZIP_ENCRYPTED = 17
 
         const val REQ_SEARCH = 1
     }

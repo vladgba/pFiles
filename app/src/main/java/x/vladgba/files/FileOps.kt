@@ -3,6 +3,7 @@ package x.vladgba.files
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
+import android.os.ParcelFileDescriptor
 import java.io.File
 import java.io.IOException
 
@@ -11,6 +12,8 @@ object FileOps {
     private const val MAX_DEPTH = 64
 
     fun transfer(src: List<File>, destDir: File, move: Boolean): Int {
+        if (ShizukuFiles.useFor(destDir) && src.all(ShizukuFiles::useFor))
+            return ShizukuFiles.transfer(src, destDir, move) ?: src.size
         var failed = 0
         val destCanon = canon(destDir)
         for (f in src) {
@@ -31,23 +34,36 @@ object FileOps {
 
     /** Recursive delete that never follows symlinks into their targets. */
     fun delete(f: File): Boolean {
+        if (ShizukuFiles.useFor(f)) return ShizukuFiles.delete(f)
         if (f.isDirectory && !isLink(f)) f.listFiles()?.forEach { delete(it) }
         // Not !f.exists(): that follows a link, so a dangling symlink we failed to delete would count as gone.
         return f.delete() || !existsNoFollow(f)
     }
 
     private fun copy(src: File, dst: File, depth: Int): Boolean = try {
-        if (src.isDirectory) {
-            if (depth > MAX_DEPTH || !(dst.isDirectory || dst.mkdirs())) {
+        if (ShizukuFiles.isDirectory(src)) {
+            if (depth > MAX_DEPTH || !(ShizukuFiles.isDirectory(dst) || dst.mkdirs() ||
+                    (ShizukuFiles.useFor(dst) && ShizukuFiles.mkdirs(dst)))) {
                 false
             } else {
                 var ok = true
-                src.listFiles()?.forEach { if (!copy(it, File(dst, it.name), depth + 1)) ok = false } ?: run { ok = false }
+                val children = if (ShizukuFiles.useFor(src)) ShizukuFiles.list(src)?.map { it.file }
+                    else src.listFiles()?.toList()
+                children?.forEach { if (!copy(it, File(dst, it.name), depth + 1)) ok = false }
+                    ?: run { ok = false }
                 ok
             }
         } else {
-            src.inputStream().use { i -> dst.outputStream().use { o -> i.copyTo(o, 64 * 1024) } }
-            dst.setLastModified(src.lastModified())
+            ShizukuFiles.input(src).use { input ->
+                val output = if (ShizukuFiles.useFor(dst)) {
+                    val fd = ShizukuFiles.open(dst, ParcelFileDescriptor.MODE_WRITE_ONLY or
+                        ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE)
+                        ?: throw IOException("Cannot write file")
+                    ParcelFileDescriptor.AutoCloseOutputStream(fd)
+                } else dst.outputStream()
+                output.use { input.copyTo(it, 64 * 1024) }
+            }
+            if (!ShizukuFiles.useFor(dst)) dst.setLastModified(src.lastModified())
             true
         }
     } catch (e: IOException) {
@@ -62,7 +78,7 @@ object FileOps {
         // existsNoFollow: a dangling symlink is taken, or writing to it would create its target elsewhere.
         if (!existsNoFollow(f)) return f
         val dot = name.lastIndexOf('.')
-        val isFileWithExt = dot > 0 && !File(dir, name).isDirectory
+        val isFileWithExt = dot > 0 && !ShizukuFiles.isDirectory(File(dir, name))
         val base = if (isFileWithExt) name.substring(0, dot) else name
         val ext = if (isFileWithExt) name.substring(dot) else ""
         var n = 1
@@ -86,27 +102,27 @@ object FileOps {
 
     /** True if [dir] is [f] itself or lies inside it, resolving symlinks (/sdcard vs /storage/emulated/0). */
     fun isInside(dir: File, f: File): Boolean {
-        if (!f.isDirectory) return false
+        if (!ShizukuFiles.isDirectory(f)) return false
         return (canon(dir) + File.separator).startsWith(canon(f) + File.separator)
     }
 
     /** lstat-based, so it also sees symlinks whose target is missing (File.exists() follows the link). */
-    fun isLink(f: File): Boolean = try {
-        OsConstants.S_ISLNK(Os.lstat(f.path).st_mode)
-    } catch (e: ErrnoException) {
-        false
+    fun isLink(f: File): Boolean {
+        if (ShizukuFiles.useFor(f)) return ShizukuFiles.isLink(f)
+        return try { OsConstants.S_ISLNK(Os.lstat(f.path).st_mode) }
+            catch (e: ErrnoException) { false }
     }
 
     /** Whether anything, a dangling symlink included, is at this path. */
-    fun existsNoFollow(f: File): Boolean = try {
-        Os.lstat(f.path)
-        true
-    } catch (e: ErrnoException) {
-        false
+    fun existsNoFollow(f: File): Boolean {
+        if (ShizukuFiles.useFor(f)) return ShizukuFiles.exists(f)
+        return try { Os.lstat(f.path); true }
+            catch (e: ErrnoException) { false }
     }
 
     /** (file count, total bytes), not following symlinked folders. */
     fun stats(f: File, depth: Int = 0): LongArray {
+        if (depth == 0 && ShizukuFiles.useFor(f)) return ShizukuFiles.stats(f) ?: longArrayOf(0, 0)
         if (!f.isDirectory) return longArrayOf(1, f.length())
         val out = longArrayOf(0, 0)
         if (depth > MAX_DEPTH || (depth > 0 && isLink(f))) return out
@@ -121,7 +137,9 @@ object FileOps {
      * Write via a temp file + rename so a crash never leaves a half-written file; falls back to a direct write.
      * A symlink is resolved first so the link itself survives, and the executable bit is carried over.
      */
-    fun writeAtomic(file: File, bytes: ByteArray): Boolean = try {
+    fun writeAtomic(file: File, bytes: ByteArray): Boolean {
+        if (ShizukuFiles.useFor(file)) return ShizukuFiles.writeAtomic(file, bytes)
+        return try {
         val f = try { file.canonicalFile } catch (e: IOException) { file }
         val tmp = File(f.parentFile, "." + f.name + ".pfiles~")
         try {
@@ -133,8 +151,7 @@ object FileOps {
             f.writeBytes(bytes)
         }
         true
-    } catch (e: Exception) {
-        false
+        } catch (e: Exception) { false }
     }
 
     fun validName(n: String) = n.isNotEmpty() && '/' !in n && '\u0000' !in n && n != "." && n != ".."
