@@ -4,9 +4,11 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.ClipData
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.os.Build
 import android.os.Process
@@ -17,8 +19,8 @@ import java.io.File
 
 /**
  * Module hook. Built-in viewers implement this and are listed in [Openers.modules]; on tap, the first module
- * whose [canOpen] matches handles the file. Unclaimed files go to an external app via ACTION_VIEW, and
- * "Open with…" lists every module plus "Other app".
+ * whose [canOpen] matches handles the file. Unclaimed files show the opener chooser, and
+ * "Open with…" lists built-in modules and compatible external apps.
  */
 interface FileOpener {
     /** Name shown in "Open with…". */
@@ -37,31 +39,181 @@ object ZipModule : FileOpener {
 object Openers {
     const val EXTRA_PATH = "x.vladgba.files.PATH"
 
-    val modules: MutableList<FileOpener> = mutableListOf(MarkdownModule, TextModule, ViewerModule, HexModule, ZipModule)
+    val modules: MutableList<FileOpener> = mutableListOf(RtfModule, MarkdownModule, TextModule, ViewerModule, HexModule, ZipModule)
 
     fun open(a: Activity, f: File) {
+        val raw = getPreferredRaw(a, extension(f))
+        if (raw != null) {
+            if (raw.startsWith("module:")) {
+                when (raw.removePrefix("module:")) {
+                    "text" -> { launch(a, EditorActivity::class.java, f); return }
+                    "hex" -> { launch(a, HexActivity::class.java, f); return }
+                    "markdown" -> { launch(a, MarkdownActivity::class.java, f); return }
+                    "rtf" -> { launch(a, RtfActivity::class.java, f); return }
+                    "zip" -> { launch(a, ZipActivity::class.java, f); return }
+                    "viewer" -> { launch(a, ViewerActivity::class.java, f); return }
+                }
+            } else {
+                val compStr = if (raw.startsWith("component:")) raw.removePrefix("component:") else raw
+                val component = ComponentName.unflattenFromString(compStr)
+                if (component != null && component.packageName != a.packageName && launchPreferred(a, f, component)) return
+            }
+            forget(a, extension(f))
+        }
         modules.firstOrNull { it.canOpen(f) }?.let { it.open(a, f); return }
-        if (!external(a, f, chooser = false)) chooser(a, f) // no external app: offer the built-in modules
+        chooser(a, f)
     }
 
-    /** "Open with…": built-in modules first, then any installed app. */
+    /** "Open with…": built-in modules and installed apps; picking an app remembers it by extension. */
     fun chooser(a: Activity, f: File) {
-        val labels = (modules.map { a.getString(it.title) } + a.getString(R.string.other_app)).toTypedArray()
+        val intent = viewIntent(a, f)
+        val apps = a.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            .filter { it.activityInfo.packageName != a.packageName }
+            .distinctBy { it.activityInfo.packageName to it.activityInfo.name }
+        val labels = (modules.map { a.getString(it.title) } +
+            apps.map { it.loadLabel(a.packageManager).toString() }).toTypedArray()
         AlertDialog.Builder(a)
             .setTitle(R.string.open_with)
             .setItems(labels) { _, i ->
-                if (i < modules.size) modules[i].open(a, f) else if (!external(a, f, chooser = true)) toast(a)
+                when {
+                    i < modules.size -> {
+                        forget(a, extension(f))
+                        modules[i].open(a, f)
+                    }
+                    i < modules.size + apps.size -> {
+                        val info = apps[i - modules.size].activityInfo
+                        val component = ComponentName(info.packageName, info.name)
+                        if (launchPreferred(a, f, component)) {
+                            setPreferredRaw(a, extension(f), component.flattenToString())
+                        } else {
+                            toast(a)
+                        }
+                    }
+                }
             }
             .show()
     }
 
+    fun normalizeExt(ext: String): String = ext.trim().trimStart('.').lowercase().ifEmpty { "<none>" }
+    fun extension(f: File): String = normalizeExt(f.extension)
+    fun preferenceKey(ext: String): String = "open_app_" + normalizeExt(ext)
+
+    fun getPreferredRaw(ctx: Context, ext: String): String? =
+        ctx.getSharedPreferences("pfiles", Context.MODE_PRIVATE).getString(preferenceKey(ext), null)
+
+    fun setPreferredRaw(ctx: Context, ext: String, target: String) {
+        ctx.getSharedPreferences("pfiles", Context.MODE_PRIVATE).edit()
+            .putString(preferenceKey(ext), target).apply()
+    }
+
+    fun forget(ctx: Context, ext: String) {
+        ctx.getSharedPreferences("pfiles", Context.MODE_PRIVATE).edit()
+            .remove(preferenceKey(ext)).apply()
+    }
+
+    fun getAllPreferred(ctx: Context): Map<String, String> {
+        val prefs = ctx.getSharedPreferences("pfiles", Context.MODE_PRIVATE)
+        val result = mutableMapOf<String, String>()
+        for ((key, value) in prefs.all) {
+            if (key.startsWith("open_app_") && value is String) {
+                result[key.removePrefix("open_app_")] = value
+            }
+        }
+        return result
+    }
+
+    fun clearAllPreferred(ctx: Context) {
+        val prefs = ctx.getSharedPreferences("pfiles", Context.MODE_PRIVATE)
+        val editor = prefs.edit()
+        for (key in prefs.all.keys) {
+            if (key.startsWith("open_app_")) editor.remove(key)
+        }
+        editor.apply()
+    }
+
+    fun targetLabel(ctx: Context, target: String): String {
+        if (target.startsWith("module:")) {
+            return when (target.removePrefix("module:")) {
+                "text" -> ctx.getString(R.string.text_editor)
+                "hex" -> ctx.getString(R.string.hex_editor)
+                "markdown" -> ctx.getString(R.string.markdown_viewer)
+                "rtf" -> ctx.getString(R.string.rtf_preview)
+                "zip" -> ctx.getString(R.string.zip_preview)
+                "viewer" -> ctx.getString(R.string.view_details)
+                else -> target
+            }
+        }
+        val compStr = if (target.startsWith("component:")) target.removePrefix("component:") else target
+        val comp = ComponentName.unflattenFromString(compStr) ?: return target
+        return try {
+            val pm = ctx.packageManager
+            val info = pm.getActivityInfo(comp, 0)
+            info.loadLabel(pm).toString()
+        } catch (_: Exception) {
+            comp.packageName
+        }
+    }
+
+    fun queryAppsForExtension(ctx: Context, ext: String): List<ResolveInfo> {
+        val dummy = File("test." + normalizeExt(ext))
+        val mimeType = mime(dummy)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse("content://${ctx.packageName}.files/test.${normalizeExt(ext)}"), mimeType)
+            addCategory(Intent.CATEGORY_DEFAULT)
+        }
+        val pm = ctx.packageManager
+        val list = try {
+            pm.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+                .filter { it.activityInfo.packageName != ctx.packageName }
+                .distinctBy { it.activityInfo.packageName to it.activityInfo.name }
+        } catch (_: Exception) {
+            emptyList()
+        }
+        return if (list.isNotEmpty()) list else queryAllViewApps(ctx)
+    }
+
+    fun queryAllViewApps(ctx: Context): List<ResolveInfo> {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse("content://${ctx.packageName}.files/test"), "*/*")
+        }
+        val pm = ctx.packageManager
+        val list = try {
+            pm.queryIntentActivities(intent, 0)
+                .filter { it.activityInfo.packageName != ctx.packageName }
+                .distinctBy { it.activityInfo.packageName to it.activityInfo.name }
+        } catch (_: Exception) {
+            emptyList()
+        }
+        if (list.isNotEmpty()) return list
+        val mainIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        return try {
+            pm.queryIntentActivities(mainIntent, 0)
+                .filter { it.activityInfo.packageName != ctx.packageName }
+                .distinctBy { it.activityInfo.packageName to it.activityInfo.name }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun viewIntent(a: Activity, f: File) = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(FilesProvider.uri(a, f), mime(f))
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
+    private fun launchPreferred(a: Activity, f: File, component: ComponentName): Boolean =
+        start(a, viewIntent(a, f).setComponent(component))
+
     fun launch(a: Activity, cls: Class<out Activity>, f: File) {
+        if (ShizukuFiles.useFor(f)) {
+            ShizukuFiles.stage(a, f) { launch(a, cls, it) }
+            return
+        }
         val i = Intent(a, cls).putExtra(EXTRA_PATH, f.absolutePath)
         // Carry the write-back target (and our grant on it) along when switching editor ↔ viewer ↔ hex.
         target(f)?.let { uri ->
             i.data = uri
             i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            if (canWrite(a, uri)) i.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            if (uri.authority == a.packageName + ".files" || canWrite(a, uri))
+                i.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         }
         a.startActivity(i)
     }
@@ -81,7 +233,7 @@ object Openers {
     /** Re-register a target passed in an activity's intent (survives process death with the task). */
     fun adoptTarget(a: Activity, f: File) {
         val uri = a.intent.data ?: return
-        if (uri.scheme == "content" && canWrite(a, uri)) setTarget(f, uri)
+        if (uri.scheme == "content" && (uri.authority == a.packageName + ".files" || canWrite(a, uri))) setTarget(f, uri)
     }
 
     fun canWrite(ctx: Context, uri: Uri): Boolean =
@@ -100,21 +252,6 @@ object Openers {
         } catch (e: Exception) {
             false
         }
-    }
-
-    /**
-     * Returns false if no app can handle the file. Read access only: a viewer has no business changing the
-     * file, and since we hold all-files access, a write grant would let any picked app rewrite anything we pass.
-     */
-    fun external(a: Activity, f: File, chooser: Boolean): Boolean {
-        if (ArchiveOps.isApk(f)) {
-            install(a, f)
-            return true
-        }
-        val view = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(FilesProvider.uri(a, f), mime(f))
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        return start(a, if (chooser) Intent.createChooser(view, f.name) else view)
     }
 
     private val INSTALLER_PACKAGES = listOf(
@@ -257,6 +394,8 @@ object Openers {
         a.startActivity(i)
         true
     } catch (e: ActivityNotFoundException) {
+        false
+    } catch (e: SecurityException) {
         false
     }
 
