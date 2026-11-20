@@ -25,11 +25,12 @@ object Storage {
             out += Root(label, File(d.path.substringBefore("/Android/data/")))
         }
         out += Root(ctx.getString(R.string.app_files), ctx.filesDir)
+        out += Root(ctx.getString(R.string.installed_apps), InstalledApps.ROOT)
         out += Root(ctx.getString(R.string.root), File("/"))
         return out
     }
 
-    fun hasAccess(ctx: Context): Boolean = when {
+    fun hasAccess(ctx: Context): Boolean = ShizukuFiles.available() || when {
         Build.VERSION.SDK_INT >= 30 -> Environment.isExternalStorageManager()
         Build.VERSION.SDK_INT >= 23 ->
             ctx.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
