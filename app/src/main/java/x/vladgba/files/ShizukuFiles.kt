@@ -179,7 +179,13 @@ class ShizukuFileService : Binder() {
 class FilesApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        appContext = this
         ShizukuFiles.init(this)
+    }
+
+    companion object {
+        lateinit var appContext: Context
+            private set
     }
 }
 

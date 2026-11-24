@@ -78,6 +78,7 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
     private val ui = Handler(Looper.getMainLooper())
     private val scrollMemory = HashMap<String, Int>()
     private var loadToken = 0
+    private var loadFuture: java.util.concurrent.Future<*>? = null
     private var shownDir: File? = null
 
     var cwd: File = File("/")
@@ -232,6 +233,7 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
     }
 
     fun navigate(dir: File) {
+        loadFuture?.cancel(true)
         host.beforeNavigate(this)
         scrollMemory[cwd.path] = list.firstVisiblePosition
         finishSelection()
@@ -255,17 +257,40 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
         val cmp = host.comparator()
         renderCrumbs()
         host.busy(true)
-        host.loader.execute {
+
+        if (FtpFiles.isFtp(dir) && !FtpFiles.isRoot(dir)) {
+            val cached = FtpFiles.getCached(dir)?.filter { hidden || !it.name.startsWith(".") }?.sortedWith(cmp)
+            if (cached != null) {
+                adapter.setData(cached)
+                itemCount = cached.size
+                emptyView.setText(if (cached.isEmpty()) R.string.empty else R.string.empty)
+            }
+        }
+
+        loadFuture?.cancel(true)
+        loadFuture = host.loader.submit {
+            if (Thread.currentThread().isInterrupted) return@submit
             val entries = (when {
                 InstalledApps.isRoot(dir) -> InstalledApps.entries(activity)
+                FtpFiles.isFtp(dir) -> FtpFiles.list(activity, dir)
                 ShizukuFiles.useFor(dir) -> ShizukuFiles.list(dir)
                 else -> dir.listFiles()?.map { Entry(it) }
             })
-                ?.let { files -> if (dir.path == "/" && files.none { InstalledApps.isRoot(it.file) })
-                    files + Entry(InstalledApps.ROOT, true, 0, 0, activity.getString(R.string.installed_apps))
-                    else files }
+                ?.let { files ->
+                    if (dir.path == "/") {
+                        var extra = files
+                        if (extra.none { InstalledApps.isRoot(it.file) }) {
+                            extra = extra + Entry(InstalledApps.ROOT, true, 0, 0, activity.getString(R.string.installed_apps))
+                        }
+                        if (extra.none { FtpFiles.isRoot(it.file) }) {
+                            extra = extra + Entry(FtpFiles.ROOT, true, 0, 0, activity.getString(R.string.ftp_connections))
+                        }
+                        extra
+                    } else files
+                }
                 ?.filter { hidden || !it.name.startsWith(".") }
                 ?.sortedWith(cmp)
+            if (Thread.currentThread().isInterrupted) return@submit
             ui.post {
                 host.busy(false)
                 if (token != loadToken || activity.isFinishing) return@post
@@ -273,7 +298,10 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
                 finishSelection()
                 adapter.setData(entries ?: emptyList())
                 shownDir = dir
-                emptyView.setText(if (entries == null) R.string.cannot_read else R.string.empty)
+                if (entries == null && FtpFiles.isFtp(dir)) {
+                    val err = FtpFiles.errorFor(dir)
+                    emptyView.text = activity.getString(R.string.cannot_read) + (if (err != null) "\n" + err else "")
+                } else emptyView.setText(if (entries == null) R.string.cannot_read else R.string.empty)
                 itemCount = entries?.size
                 list.setSelection(pos)
                 host.onLocationChanged(this)
@@ -287,7 +315,15 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
         while (d != null) {
             val root = host.roots.firstOrNull { it.dir == d && it.dir.path != "/" }
             if (root != null) { chain += root.label to d; break }
-            chain += (if (d.path == "/") "/" else d.name) to d
+            val label = when {
+                d.path == "/" -> "/"
+                FtpFiles.isRoot(d) -> activity.getString(R.string.ftp_connections)
+                FtpFiles.isFtp(d) && d.parentFile?.path == FtpFiles.ROOT.path -> {
+                    FtpConfigManager.get(activity, d.name)?.name ?: d.name
+                }
+                else -> d.name
+            }
+            chain += label to d
             d = d.parentFile
         }
         chain.reverse()
@@ -349,6 +385,16 @@ class Panel(private val activity: Activity, private val host: Host) : LinearLayo
         if (InstalledApps.isRoot(cwd)) {
             host.onOpen(this, adapter.getItem(pos))
             return true
+        }
+        if (FtpFiles.isRoot(cwd)) {
+            val entry = adapter.getItem(pos)
+            val cfg = FtpConfigManager.get(activity, entry.file.name)
+            if (cfg != null) {
+                FtpDialogs.showAddEdit(activity, cfg) {
+                    load()
+                }
+                return true
+            }
         }
         if (!selecting) startSelection()
         list.setItemChecked(pos, true)

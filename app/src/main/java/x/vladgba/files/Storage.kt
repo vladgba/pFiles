@@ -26,6 +26,10 @@ object Storage {
         }
         out += Root(ctx.getString(R.string.app_files), ctx.filesDir)
         out += Root(ctx.getString(R.string.installed_apps), InstalledApps.ROOT)
+        FtpConfigManager.getAll(ctx).forEach { cfg ->
+            out += Root("FTP: ${cfg.name}", File(FtpFiles.ROOT, cfg.id))
+        }
+        out += Root(ctx.getString(R.string.ftp_connections), FtpFiles.ROOT)
         out += Root(ctx.getString(R.string.root), File("/"))
         return out
     }

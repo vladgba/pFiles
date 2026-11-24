@@ -243,7 +243,36 @@ object SettingsDialog {
             prefs.edit().putBoolean("md_anchors", anchors).apply()
         })
 
-        // 5. System & Access
+        // 5. Remote & FTP
+        container.addView(sectionHeader(activity, activity.getString(R.string.ftp_connections)))
+        val ftpSummary = TextView(activity).apply {
+            val count = FtpConfigManager.getAll(activity).size
+            text = if (count == 0) activity.getString(R.string.ftp_no_connections)
+                   else activity.resources.getQuantityString(R.plurals.items, count, count)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            alpha = 0.7f
+        }
+        container.addView(actionRow(activity, activity.getString(R.string.ftp_connections), ftpSummary) {
+            FtpDialogs.showManage(activity) {
+                val c = FtpConfigManager.getAll(activity).size
+                ftpSummary.text = if (c == 0) activity.getString(R.string.ftp_no_connections)
+                                  else activity.resources.getQuantityString(R.plurals.items, c, c)
+                onUpdated()
+            }
+        })
+        val ftpServerSubtitle = TextView(activity).apply {
+            text = if (FtpServerService.isRunning()) activity.getString(R.string.ftp_server_running)
+                   else activity.getString(R.string.ftp_server_stopped)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            alpha = 0.7f
+        }
+        container.addView(actionRow(activity, activity.getString(R.string.ftp_server), ftpServerSubtitle) {
+            FtpDialogs.showServer(activity)
+            ftpServerSubtitle.text = if (FtpServerService.isRunning()) activity.getString(R.string.ftp_server_running)
+                                     else activity.getString(R.string.ftp_server_stopped)
+        })
+
+        // 6. System & Access
         container.addView(sectionHeader(activity, activity.getString(R.string.category_system)))
 
         val shizukuSubtitle = TextView(activity).apply {

@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "pFiles"
 include(":app")
+include(":ftpmodule")

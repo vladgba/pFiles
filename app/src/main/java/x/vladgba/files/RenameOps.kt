@@ -130,8 +130,11 @@ object RenameOps {
      * Returns the number of files that couldn't be renamed. Blocking.
      */
     fun apply(plan: Plan): Int {
-        fun move(src: File, dst: File) = if (ShizukuFiles.useFor(src)) ShizukuFiles.rename(src, dst)
-            else src.renameTo(dst)
+        fun move(src: File, dst: File) = when {
+            FtpFiles.isFtp(src) -> FtpFiles.rename(FilesApplication.appContext, src, dst.name)
+            ShizukuFiles.useFor(src) -> ShizukuFiles.rename(src, dst)
+            else -> src.renameTo(dst)
+        }
         val todo = plan.renames
         var failed = 0
         val staged = ArrayList<Pair<Item, File>>()

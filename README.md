@@ -13,7 +13,8 @@ A small, fast file manager for Android with a built-in code editor, a viewer for
 - **Viewer for big files.** Files over 1 MB open instantly; lines are read from disk only when shown.
 - **Hex editor** for files of any size, with an on-screen keypad and value inspector.
 - **Open with.** pFiles appears in other apps as **pFiles Editor** and **pFiles Hex**.
-- **No ads, no network, no data collection.**
+- **FTP server connections & sharing.** Connect to remote FTP servers to browse, download, and upload files directly in either panel. Also includes an embedded FTP server to share device files with PCs and local devices over Wi-Fi.
+- **No ads, no data collection.**
 
 ## Permissions
 
@@ -21,6 +22,8 @@ A small, fast file manager for Android with a built-in code editor, a viewer for
 |---|---|---|
 | All files access (Android 11+) / storage | Browsing and editing your files | Yes |
 | Install unknown apps | **Install** button for APK files | Optional |
+| Internet & network state | Connecting to remote FTP servers and local file sharing | Optional |
+| Foreground service | Running embedded FTP server in background | Optional |
 
 ### Notes
 

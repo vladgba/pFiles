@@ -1,0 +1,5 @@
+-allowaccessmodification
+-dontwarn org.apache.commons.net.**
+-dontwarn javax.naming.**
+-dontwarn com.jcraft.jsch.**
+-keep class com.jcraft.jsch.** { *; }

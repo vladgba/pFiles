@@ -11,7 +11,46 @@ import java.io.IOException
 object FileOps {
     private const val MAX_DEPTH = 64
 
-    fun transfer(src: List<File>, destDir: File, move: Boolean): Int {
+    /** Content fingerprint: SHA-256 of a file, or of a folder's sorted (path, file hash) list. Null if unreadable. */
+    fun fingerprint(f: File, depth: Int = 0): String? = try {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        fun feed(x: File, rel: String, d: Int): Boolean {
+            if (Thread.currentThread().isInterrupted || d > MAX_DEPTH) return false
+            if (ShizukuFiles.isDirectory(x)) {
+                if (isLink(x)) return true
+                val kids = (if (ShizukuFiles.useFor(x)) ShizukuFiles.list(x)?.map { it.file } else x.listFiles()?.toList())
+                    ?: return false
+                for (k in kids.sortedBy { it.name }) if (!feed(k, rel + "/" + k.name, d + 1)) return false
+            } else {
+                md.update((rel + "\u0000").toByteArray())
+                val buf = ByteArray(64 * 1024)
+                ShizukuFiles.input(x).use { i -> while (true) { val n = i.read(buf); if (n < 0) break; md.update(buf, 0, n) } }
+            }
+            return true
+        }
+        if (feed(f, "", depth)) md.digest().joinToString("") { "%02x".format(it) } else null
+    } catch (e: Exception) { null }
+
+    /** What to do when the target name is taken. REPLACE on a folder merges into it. */
+    enum class Policy { BOTH, REPLACE, SKIP }
+
+    /** True when [transfer] runs the plain local code path, the only one that honours a [Policy]. */
+    fun isLocalTransfer(src: List<File>, destDir: File): Boolean =
+        !(FtpFiles.isFtp(destDir) || src.any(FtpFiles::isFtp) ||
+            (ShizukuFiles.useFor(destDir) && src.all(ShizukuFiles::useFor)))
+
+    /** Items whose name already exists in [destDir] (excluding a move onto itself). */
+    fun conflicts(src: List<File>, destDir: File, move: Boolean): List<File> {
+        val destCanon = canon(destDir)
+        return src.filter { f ->
+            !(move && f.parentFile?.let(::canon) == destCanon) && existsNoFollow(File(destDir, f.name))
+        }
+    }
+
+    fun transfer(src: List<File>, destDir: File, move: Boolean, policy: (File) -> Policy = { Policy.BOTH }): Int {
+        if (FtpFiles.isFtp(destDir) || src.any(FtpFiles::isFtp)) {
+            return FtpFiles.transfer(FilesApplication.appContext, src, destDir, move)
+        }
         if (ShizukuFiles.useFor(destDir) && src.all(ShizukuFiles::useFor))
             return ShizukuFiles.transfer(src, destDir, move) ?: src.size
         var failed = 0
@@ -19,8 +58,14 @@ object FileOps {
         for (f in src) {
             if (move && f.parentFile?.let(::canon) == destCanon) continue // cut + paste in place: nothing to do
             if (isInside(destDir, f)) { failed++; continue } // a folder into itself would recurse until MAX_DEPTH
-            val target = unique(destDir, f.name)
-            val ok = if (move) {
+            val p = if (existsNoFollow(File(destDir, f.name))) policy(f) else Policy.BOTH
+            if (p == Policy.SKIP) continue
+            val target = if (p == Policy.REPLACE) File(destDir, f.name) else unique(destDir, f.name)
+            val ok = if (p == Policy.REPLACE && target.isDirectory && f.isDirectory) {
+                copy(f, target, 0) && (!move || delete(f)) // merge: same-named files are overwritten
+            } else if (p == Policy.REPLACE && existsNoFollow(target) && !delete(target)) {
+                false
+            } else if (move) {
                 f.renameTo(target) || (copy(f, target, 0) && delete(f))
             } else {
                 copy(f, target, 0)
@@ -30,10 +75,18 @@ object FileOps {
         return failed
     }
 
-    fun deleteAll(files: List<File>): Int = files.count { !delete(it) }
+    fun deleteAll(files: List<File>): Int {
+        var failed = 0
+        files.forEachIndexed { i, f ->
+            OpProgress.report("${f.name} (${i + 1}/${files.size})", i * 100 / files.size)
+            if (!delete(f)) failed++
+        }
+        return failed
+    }
 
     /** Recursive delete that never follows symlinks into their targets. */
     fun delete(f: File): Boolean {
+        if (FtpFiles.isFtp(f)) return FtpFiles.delete(FilesApplication.appContext, f)
         if (ShizukuFiles.useFor(f)) return ShizukuFiles.delete(f)
         if (f.isDirectory && !isLink(f)) f.listFiles()?.forEach { delete(it) }
         // Not !f.exists(): that follows a link, so a dangling symlink we failed to delete would count as gone.
@@ -122,6 +175,7 @@ object FileOps {
 
     /** (file count, total bytes), not following symlinked folders. */
     fun stats(f: File, depth: Int = 0): LongArray {
+        if (FtpFiles.isFtp(f)) return FtpFiles.stats(FilesApplication.appContext, f)
         if (depth == 0 && ShizukuFiles.useFor(f)) return ShizukuFiles.stats(f) ?: longArrayOf(0, 0)
         if (!f.isDirectory) return longArrayOf(1, f.length())
         val out = longArrayOf(0, 0)

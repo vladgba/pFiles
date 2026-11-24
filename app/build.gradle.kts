@@ -35,6 +35,10 @@ android {
         buildConfig = false
     }
 
+    // Shared binder contract with the FTP module APK, plus its pure FTP code for the loopback unit test.
+    sourceSets["main"].java.srcDir("../ftpmodule/src/shared/kotlin")
+    sourceSets["test"].java.srcDir("../ftpmodule/src/core/kotlin")
+
     packaging {
         resources.excludes += listOf("META-INF/**", "kotlin/**", "DebugProbesKt.bin")
     }
@@ -58,5 +62,9 @@ dependencies {
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
     implementation("net.lingala.zip4j:zip4j:2.11.6")
+    implementation("org.apache.sshd:sshd-sftp:2.20.1")
+    implementation("org.slf4j:slf4j-nop:2.0.16")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("commons-net:commons-net:3.11.1")
+    testImplementation("org.json:json:20240303")
 }

@@ -48,6 +48,7 @@ class MainActivity : Activity(), Panel.Host {
     private lateinit var prefs: SharedPreferences
     private lateinit var banner: TextView
     private lateinit var progress: ProgressBar
+    private lateinit var opStatus: TextView
 
     // Two file panels, Total Commander style. The bottom bar, search and paste act on the active one.
     private lateinit var panels: List<Panel>
@@ -59,7 +60,7 @@ class MainActivity : Activity(), Panel.Host {
     private val selecting get() = active.selecting
 
     private val ui = Handler(Looper.getMainLooper())
-    override val loader: ExecutorService = Executors.newSingleThreadExecutor()
+    override val loader: ExecutorService = Executors.newFixedThreadPool(4)
     private val worker = Executors.newSingleThreadExecutor()
     private var busyCount = 0
     private lateinit var normalIcons: LinearLayout
@@ -150,6 +151,7 @@ class MainActivity : Activity(), Panel.Host {
     override fun onDestroy() {
         super.onDestroy()
         ShizukuFiles.onChange = null
+        FtpFiles.closeAll()
         loader.shutdownNow()
         worker.shutdown() // let a running paste finish
     }
@@ -190,6 +192,15 @@ class MainActivity : Activity(), Panel.Host {
             isIndeterminate = true
             visibility = View.INVISIBLE
         }
+        opStatus = TextView(this).apply {
+            textSize = 12f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+            setTextColor(pColor(R.color.p_on_accent_soft))
+            setBackgroundColor(pColor(R.color.p_accent_soft))
+            setPadding(dp(12), dp(2), dp(12), dp(2))
+            visibility = View.GONE
+        }
         paneDivider = View(this).apply { setBackgroundColor(pColor(R.color.p_line)) }
         panes = LinearLayout(this).apply {
             addView(panels[0])
@@ -201,6 +212,7 @@ class MainActivity : Activity(), Panel.Host {
             orientation = LinearLayout.VERTICAL
             addView(banner, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(panes, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            addView(opStatus, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(progress, LinearLayout.LayoutParams(MATCH_PARENT, dp(4)))
             addView(buildBottomBar(), LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             // Edge-to-edge: keep clear of the status bar on top and the navigation bar / keyboard below.
@@ -367,8 +379,12 @@ class MainActivity : Activity(), Panel.Host {
 
     private fun showNewMenu(anchor: View) {
         val popup = PopupMenu(this, anchor)
-        popup.menu.add(0, M_NEW_DIR, 0, R.string.new_folder)
-        popup.menu.add(0, M_NEW_FILE, 1, R.string.new_file)
+        if (FtpFiles.isRoot(active.cwd)) {
+            popup.menu.add(0, M_FTP_ADD, 0, R.string.ftp_add_connection)
+        } else {
+            popup.menu.add(0, M_NEW_DIR, 0, R.string.new_folder)
+            popup.menu.add(0, M_NEW_FILE, 1, R.string.new_file)
+        }
         popup.setOnMenuItemClickListener { onMenuItem(it.itemId) }
         popup.show()
     }
@@ -430,7 +446,9 @@ class MainActivity : Activity(), Panel.Host {
     private fun showStorageMenu(anchor: View) {
         val p = PopupMenu(this, anchor)
         roots.forEachIndexed { i, r -> p.menu.add(0, M_ROOT_BASE + i, i, r.label) }
-        p.menu.add(0, M_SHIZUKU, roots.size, if (ShizukuFiles.available())
+        p.menu.add(0, M_FTP_MANAGE, roots.size, R.string.ftp_manage)
+        p.menu.add(0, M_FTP_SERVER, roots.size + 1, R.string.ftp_server)
+        p.menu.add(0, M_SHIZUKU, roots.size + 2, if (ShizukuFiles.available())
             R.string.shizuku_connected else R.string.shizuku_access)
         p.setOnMenuItemClickListener { onMenuItem(it.itemId) }
         p.show()
@@ -494,6 +512,14 @@ class MainActivity : Activity(), Panel.Host {
                     }
                 },
                 { selection -> runOp { InstalledApps.backup(this, selection) } })
+            return
+        }
+        if (FtpFiles.isRoot(p.cwd)) {
+            p.navigate(e.file)
+            return
+        }
+        if (FtpFiles.isFtp(e.file)) {
+            if (e.isDir) p.navigate(e.file) else FtpFiles.open(this, e.file)
             return
         }
         if (e.isDir) p.navigate(e.file) else Openers.open(this, e.file)
@@ -598,9 +624,22 @@ class MainActivity : Activity(), Panel.Host {
     private fun onMenuItem(id: Int): Boolean {
         when {
             id == M_PASTE -> paste()
+            id == M_FTP_ADD -> FtpDialogs.showAddEdit(this) {
+                roots = Storage.roots(this)
+                loadShown()
+            }
+            id == M_FTP_MANAGE -> FtpDialogs.showManage(this, { dir -> active.navigate(dir) }) {
+                roots = Storage.roots(this)
+                loadShown()
+            }
+            id == M_FTP_SERVER -> FtpDialogs.showServer(this)
             id == M_NEW_DIR -> prompt(R.string.new_folder, "") { name ->
                 val f = File(active.cwd, name)
                 when {
+                    FtpFiles.isFtp(active.cwd) -> {
+                        val ok = FtpFiles.mkdir(this, active.cwd, name)
+                        if (!ok) toast(R.string.failed) else loadShown()
+                    }
                     FileOps.existsNoFollow(f) -> toast(R.string.exists)
                     !(if (ShizukuFiles.useFor(f)) ShizukuFiles.mkdir(f) else f.mkdir()) -> toast(R.string.failed)
                     else -> loadShown()
@@ -608,9 +647,17 @@ class MainActivity : Activity(), Panel.Host {
             }
             id == M_NEW_FILE -> prompt(R.string.new_file, "") { name ->
                 val f = File(active.cwd, name)
-                val ok = try { if (ShizukuFiles.useFor(f)) ShizukuFiles.create(f) else f.createNewFile() }
-                    catch (e: IOException) { false }
-                if (FileOps.existsNoFollow(f) && !ok) toast(R.string.exists) else if (!ok) toast(R.string.failed) else loadShown()
+                when {
+                    FtpFiles.isFtp(active.cwd) -> {
+                        val ok = FtpFiles.create(this, active.cwd, name)
+                        if (!ok) toast(R.string.failed) else loadShown()
+                    }
+                    else -> {
+                        val ok = try { if (ShizukuFiles.useFor(f)) ShizukuFiles.create(f) else f.createNewFile() }
+                            catch (e: IOException) { false }
+                        if (FileOps.existsNoFollow(f) && !ok) toast(R.string.exists) else if (!ok) toast(R.string.failed) else loadShown()
+                    }
+                }
             }
             id in M_SORT_NAME..M_SORT_TYPE -> { sortMode = id - M_SORT_NAME; savePrefs(); loadShown() }
             id == M_DESC -> { sortDesc = !sortDesc; savePrefs(); loadShown() }
@@ -702,6 +749,8 @@ class MainActivity : Activity(), Panel.Host {
         p.menu.add(0, A_BATCH_RENAME, 0, R.string.rename_by_pattern)
         p.menu.add(0, A_ZIP, 1, R.string.zip_compress)
         p.menu.add(0, A_ZIP_ENCRYPTED, 2, R.string.zip_compress_encrypted)
+        val cmp = compareTargets(sel.map { it.file })
+        if (cmp != null) p.menu.add(0, A_COMPARE, 3, R.string.compare)
         if (dualMode) {
             p.menu.add(0, A_COPY_OTHER, 4, R.string.copy_to_other)
             p.menu.add(0, A_MOVE_OTHER, 5, R.string.move_to_other)
@@ -716,6 +765,7 @@ class MainActivity : Activity(), Panel.Host {
                 A_BATCH_RENAME -> batchRename(sel.map { it.file })
                 A_ZIP -> compress(sel.map { it.file })
                 A_ZIP_ENCRYPTED -> compress(sel.map { it.file }, encrypted = true)
+                A_COMPARE -> compareTargets(sel.map { it.file })?.let { DiffActivity.start(this, it.first, it.second) }
                 A_ZIP_PREVIEW -> ZipModule.open(this, sel[0].file)
                 A_UNZIP -> extract(sel[0].file)
                 A_COPY_OTHER, A_MOVE_OTHER -> {
@@ -731,6 +781,17 @@ class MainActivity : Activity(), Panel.Host {
             true
         }
         p.show()
+    }
+
+    /** Two files to compare: the two selected ones, or the selected one and its same-named twin in the other panel. */
+    private fun compareTargets(files: List<File>): Pair<File, File>? {
+        if (files.any { ShizukuFiles.isDirectory(it) }) return null
+        if (files.size == 2) return files[0] to files[1]
+        if (files.size == 1 && dualMode) {
+            val twin = File(other.cwd, files[0].name)
+            if (FileOps.existsNoFollow(twin) && !ShizukuFiles.isDirectory(twin) && twin != files[0]) return files[0] to twin
+        }
+        return null
     }
 
     /** Rename by pattern (wildcard or regex, with a counter); see [RenameOps]. */
@@ -868,7 +929,139 @@ class MainActivity : Activity(), Panel.Host {
             return
         }
         if (move) { clip = emptyList(); refreshBar() }
-        runOp { FileOps.transfer(src, dest, move) }
+        transferResolving(src, dest, move)
+    }
+
+    /** Windows-style: one window listing every name clash with size, date and content hash; differences in bold. */
+    private fun transferResolving(files: List<File>, dest: File, move: Boolean) {
+        if (!FileOps.isLocalTransfer(files, dest)) { runOp { FileOps.transfer(files, dest, move) }; return }
+        val clashes = FileOps.conflicts(files, dest, move)
+        if (clashes.isEmpty()) { runOp { FileOps.transfer(files, dest, move) }; return }
+        showMergeDialog(clashes, dest) { choice ->
+            runOp { FileOps.transfer(files, dest, move) { choice[it] ?: FileOps.Policy.BOTH } }
+        }
+    }
+
+    private fun showMergeDialog(clashes: List<File>, dest: File, done: (Map<File, FileOps.Policy>) -> Unit) {
+        val dp = resources.displayMetrics.density
+        fun px(v: Int) = (v * dp).toInt()
+        val diffColor = Color.rgb(0xE5, 0x39, 0x35)
+        val fmt = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM)
+        val choice = HashMap<File, FileOps.Policy>()
+        val groups = ArrayList<android.widget.RadioGroup>()
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(px(16), px(8), px(16), 0) }
+        val head = TextView(this).apply { text = getString(R.string.merge_hint, clashes.size) }
+        root.addView(head)
+
+        fun bar(label: Int, policy: FileOps.Policy) = android.widget.Button(this).apply {
+            setText(label); isAllCaps = false
+            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+            setOnClickListener { groups.forEach { g -> g.check(g.getChildAt(policy.ordinal).id) } }
+        }
+        root.addView(LinearLayout(this).apply {
+            addView(bar(R.string.merge_all_replace, FileOps.Policy.REPLACE))
+            addView(bar(R.string.merge_all_both, FileOps.Policy.BOTH))
+            addView(bar(R.string.merge_all_skip, FileOps.Policy.SKIP))
+        })
+
+        class Side(val file: File) {
+            val dir = ShizukuFiles.isDirectory(file)
+            val stats = FileOps.stats(file)
+            val size = if (dir) stats[1] else file.length()
+            val time = file.lastModified()
+            @Volatile var hash: String? = null
+            @Volatile var hashDone = false
+        }
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = android.widget.ScrollView(this).apply { addView(list) }
+        root.addView(scroll, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+        val rows = ArrayList<() -> Unit>()
+
+        clashes.forEach { src ->
+            val inc = Side(src)
+            val old = Side(File(dest, src.name))
+            fun cell(vararg lines: Pair<String, Boolean>) = android.text.SpannableStringBuilder().also { sb ->
+                lines.forEachIndexed { i, (t, diff) ->
+                    if (i > 0) sb.append('\n')
+                    val st = sb.length
+                    sb.append(t)
+                    if (diff) {
+                        sb.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), st, sb.length, 0)
+                        sb.setSpan(android.text.style.ForegroundColorSpan(diffColor), st, sb.length, 0)
+                        sb.setSpan(android.text.style.RelativeSizeSpan(1.2f), st, sb.length, 0)
+                        // second bold pass via stroke is unavailable; colour + size + bold marks it
+                    }
+                }
+            }
+            val tvInc = TextView(this).apply { layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f) }
+            val tvOld = TextView(this).apply { layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f) }
+            val sameType = inc.dir == old.dir
+            fun render() {
+                val sizeDiff = inc.size != old.size
+                val timeDiff = inc.time / 1000 != old.time / 1000
+                val hashDiff = when {
+                    !sameType -> true
+                    sizeDiff -> true
+                    inc.hashDone && old.hashDone -> inc.hash != old.hash
+                    else -> false
+                }
+                fun hashText(s: Side) = getString(R.string.merge_hash) + " " +
+                    (if (s.hashDone) s.hash?.take(12) ?: "?" else "…")
+                val note = when {
+                    !sameType -> getString(R.string.merge_type_differs)
+                    inc.hashDone && old.hashDone -> getString(if (hashDiff) R.string.merge_content_differs else R.string.merge_identical)
+                    sizeDiff -> getString(R.string.merge_content_differs)
+                    else -> getString(R.string.merge_comparing)
+                }
+                val noteDiff = hashDiff
+                fun build(s: Side, other: Side, title: String) = cell(
+                    title to false,
+                    (Formatter.formatFileSize(this, s.size) + " (" + s.size + " B)") to sizeDiff,
+                    fmt.format(Date(s.time)) + (if (timeDiff) (if (s.time > other.time) "  ▲" else "  ▼") else "") to timeDiff,
+                    hashText(s) to hashDiff,
+                    (if (s === inc) note else "") to (noteDiff && s === inc)
+                )
+                tvInc.text = build(inc, old, getString(R.string.merge_incoming))
+                tvOld.text = build(old, inc, getString(R.string.merge_existing))
+            }
+            render()
+            rows += { render() }
+
+            val group = android.widget.RadioGroup(this).apply {
+                orientation = android.widget.RadioGroup.HORIZONTAL
+                val labels = listOf(
+                    if (inc.dir && old.dir) R.string.merge_merge else R.string.merge_replace,
+                    R.string.merge_both, R.string.merge_skip)
+                FileOps.Policy.values().forEachIndexed { i, _ ->
+                    addView(android.widget.RadioButton(this@MainActivity).apply {
+                        id = View.generateViewId(); setText(labels[i])
+                    })
+                }
+                check(getChildAt(FileOps.Policy.BOTH.ordinal).id)
+                setOnCheckedChangeListener { g, id -> choice[src] = FileOps.Policy.values()[g.indexOfChild(g.findViewById(id))] }
+            }
+            groups += group
+            choice[src] = FileOps.Policy.BOTH
+            list.addView(TextView(this).apply {
+                text = src.name; setTypeface(typeface, android.graphics.Typeface.BOLD); textSize = 16f
+                setPadding(0, px(14), 0, px(4))
+            })
+            list.addView(LinearLayout(this).apply { addView(tvInc); addView(tvOld) })
+            list.addView(group)
+
+            Thread {
+                for (s in listOf(inc, old)) { s.hash = FileOps.fingerprint(s.file); s.hashDone = true }
+                ui.post { render() }
+            }.start()
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.merge_title)
+            .setView(root)
+            .setCancelable(false)
+            .setPositiveButton(R.string.merge_continue) { _, _ -> done(choice) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     /** Copy or move [files] into [dest] (drag & drop, "to other panel"); moved files leave the paste list. */
@@ -877,15 +1070,26 @@ class MainActivity : Activity(), Panel.Host {
             val moved = files.toSet()
             if (clip.any { it in moved }) { clip = clip - moved; refreshBar() }
         }
-        runOp { FileOps.transfer(files, dest, move) }
+        transferResolving(files, dest, move)
     }
 
     /** Run a blocking op off the UI thread; [op] returns the number of failures. */
     private fun runOp(op: () -> Int) {
         busy(true)
+        OpProgress.sink = { text, percent ->
+            ui.post {
+                opStatus.text = if (percent >= 0) "$text · $percent%" else text
+                opStatus.visibility = View.VISIBLE
+                progress.isIndeterminate = percent < 0
+                if (percent >= 0) progress.progress = percent
+            }
+        }
         worker.execute {
             val failed = try { op() } catch (e: Exception) { -1 }
+            OpProgress.sink = null
             ui.post {
+                opStatus.visibility = View.GONE
+                progress.isIndeterminate = true
                 // isFinishing is false when the activity is recreated (e.g. dark mode switch); isDestroyed isn't.
                 if (isFinishing || isDestroyed) return@post
                 busy(false)
@@ -962,6 +1166,9 @@ class MainActivity : Activity(), Panel.Host {
         const val M_ABOUT = 40
         const val M_SETTINGS = 41
         const val M_DEFAULT_APPS = 42
+        const val M_FTP_MANAGE = 43
+        const val M_FTP_SERVER = 44
+        const val M_FTP_ADD = 45
         const val M_ROOT_BASE = 100
 
         const val A_COPY = 1
@@ -981,6 +1188,7 @@ class MainActivity : Activity(), Panel.Host {
         const val A_COPY_OTHER = 15
         const val A_MOVE_OTHER = 16
         const val A_ZIP_ENCRYPTED = 17
+        const val A_COMPARE = 18
 
         const val REQ_SEARCH = 1
     }
