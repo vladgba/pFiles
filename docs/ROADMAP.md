@@ -66,6 +66,10 @@ interface StorageProvider : Module { roots(): List<Root> }
 ### Exists
 Markdown viewer, Text editor, Read-only viewer, Hex editor, Archive previewer (zip/apk/tar/gz), Search, Batch rename.
 
+Added since this roadmap was written: module ids with an enable switch per module (a light version of Phase 1), Image viewer, Media player, Properties checksums, Trash, Bookmarks and Recents, Storage analyzer with duplicate finder, PDF viewer, 7z and RAR4 reading (Commons Compress, junrar), FTP and SFTP, SQLite browser, CSV/JSON table view, diff viewer and APK inspector.
+
+Still open from the list below: grid thumbnails, SMB, the Termux bridge, clipboard history, and the structural phases (packages, `FileAction` and `StorageProvider` contracts, `JobQueue`, Gradle split and flavors). The zero-dependency constraint above no longer holds: small libraries are accepted where the framework has no equivalent.
+
 ### Standard modules to add (priority order)
 | # | Module | Scope | Effort |
 |---|---|---|---|

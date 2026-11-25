@@ -110,17 +110,42 @@ app/src/main/java/x/vladgba/files/
 
 ## Modules
 
-Built-in viewers are modules registered in `Openers.modules`. When you tap a file, the first module whose `canOpen()` returns true handles it. Anything unclaimed goes to an external app via `ACTION_VIEW`, and "Open with…" lists every module plus other installed apps.
+Built-in viewers are modules registered in `Openers.all`. When you tap a file, the first enabled module whose `canOpen()` returns true handles it. The menu entry **Modules** switches each one on or off (`Openers.modules` is the enabled subset). Anything unclaimed goes to an external app via `ACTION_VIEW`, and "Open with…" lists every module plus other installed apps.
 
 ```kotlin
 interface FileOpener {
+    val id: String                       // stable id, used in preferences
     val title: Int                       // name shown in "Open with…"
     fun canOpen(f: File): Boolean        // claim the file on a plain tap
     fun open(a: Activity, f: File)
 }
 ```
 
-Current modules: `TextModule` (text editor; large or read-only files are routed to the viewer), `ViewerModule` (read-only text viewer), `HexModule` (hex editor) and `ZipModule` (archive previewer). To add one, implement `FileOpener`, add its activity to the manifest and append it to `Openers.modules`.
+Current modules, in claim order:
+
+| Module | Claims on tap | Notes |
+|---|---|---|
+| `RtfModule` | `.rtf` | Preview |
+| `MarkdownModule` | Markdown files | Rendered view |
+| `ImageModule` | jpg, png, gif, webp, bmp, heic, avif | Pinch zoom, double tap, swipe or menu for the next image in the folder, EXIF in Properties. Decoded downsampled, so big photos are safe |
+| `MediaModule` | common audio and video | Platform `VideoView`; music continues through the folder, position survives rotation |
+| `PdfModule` | `.pdf` | Platform `PdfRenderer`; pages render as they scroll into view, zoom 100 to 400 percent, go to page. Password-protected files are not supported |
+| `SqliteModule` | `.db`, `.sqlite`, `.sqlite3`, `.db3` with an SQLite header | Read-only: tables and views with row counts, 500 rows per page, long-press shows the schema |
+| `TextModule` | text files | Editor; large or read-only files are routed to the viewer |
+| `ViewerModule` | nothing (Open with) | Read-only text viewer |
+| `HexModule` | nothing (Open with) | Hex editor |
+| `ZipModule` | archives | ZIP family, TAR, GZ, and read-only 7z and RAR4 through `ExtraArchives` |
+| `TableModule` | nothing (Open with) | CSV/TSV with delimiter detection, JSON arrays and JSON lines, up to 16 MB and 50,000 rows |
+| `ApkModule` | nothing (Open with) | Version, installed version, SDK levels, signing certificate, components and permissions |
+
+To add one, implement `FileOpener`, add its activity to the manifest and add it to `Openers.all`.
+
+### Other features
+
+- **Trash** (`Trash.kt`, `TrashActivity`): each storage volume has a hidden `.pFilesTrash` folder, so trashing is a rename and never copies data. Items are restored to their original place and purged after 30 days. FTP, Shizuku and app-private files are always deleted for good.
+- **Bookmarks and recents** (`Places.kt`): stored in preferences; the storage menu lists them.
+- **Storage analyzer** (`AnalyzeOps.kt`, `AnalyzerActivity`): one walk of the folder gives per-child sizes and the 200 largest files; duplicates are found by size, then a hash of the first 64 KB, then a full SHA-256.
+- **Checksums** (`Checksums.kt`): one pass over the file for all four digests.
 
 ## Licence
 
