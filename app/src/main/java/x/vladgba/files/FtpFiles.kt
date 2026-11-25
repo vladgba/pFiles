@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object FtpFiles {
     val ROOT = File("/pfiles-ftp")
+    private const val REMOTE_MARK = ".remote"
 
     fun isRoot(f: File): Boolean = f.path == ROOT.path
     fun isFtp(f: File): Boolean = f.path.startsWith(ROOT.path)
@@ -166,11 +167,41 @@ object FtpFiles {
         }
     }
 
+    /**
+     * The local copy of a remote file: `ftp_cache/<connection>/<hash of the remote path>/<name>`. The remote path
+     * is kept in a `.remote` file beside the copy, so a save can upload it even after the app was restarted, and
+     * two remote files with the same name in different folders no longer share one copy.
+     */
+    private fun cacheCopy(ctx: Context, resolved: ResolvedFtpPath, name: String): File {
+        val hash = java.security.MessageDigest.getInstance("MD5").digest(resolved.remotePath.toByteArray())
+            .joinToString("") { "%02x".format(it) }.take(12)
+        val dir = File(ctx.cacheDir, "ftp_cache/${resolved.config.id}/$hash")
+        dir.mkdirs()
+        File(dir, REMOTE_MARK).writeText(resolved.remotePath)
+        return File(dir, name)
+    }
+
+    /** Uploads an edited local copy back to its FTP server. Null when [f] is not a copy of a remote file. Blocking. */
+    fun uploadBack(ctx: Context, f: File): Boolean? {
+        val dir = f.parentFile ?: return null
+        val mark = File(dir, REMOTE_MARK)
+        val cacheRoot = File(ctx.cacheDir, "ftp_cache").absolutePath + "/"
+        if (!f.absolutePath.startsWith(cacheRoot) || !mark.isFile) return null
+        val configId = dir.parentFile?.name ?: return null
+        val remote = try { mark.readText() } catch (_: IOException) { return false }
+        val client = getClient(ctx, configId) ?: return false
+        return try {
+            FileInputStream(f).use { client.upload(it, remote) }
+            invalidateCache()
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun open(activity: Activity, file: File) {
         val resolved = resolve(activity, file) ?: return
-        val cacheDir = File(activity.cacheDir, "ftp_cache/${resolved.config.id}")
-        cacheDir.mkdirs()
-        val cachedFile = File(cacheDir, file.name)
+        val cachedFile = cacheCopy(activity, resolved, file.name)
 
         Toast.makeText(activity, R.string.saving, Toast.LENGTH_SHORT).show()
 

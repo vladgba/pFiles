@@ -261,8 +261,10 @@ object Openers {
         ctx.checkUriPermission(uri, Process.myPid(), Process.myUid(), Intent.FLAG_GRANT_WRITE_URI_PERMISSION) ==
             PackageManager.PERMISSION_GRANTED
 
-    /** Copy [f] back to its target URI. True if there is no target or the copy succeeded. Blocking. */
+    /** Copy [f] back to its target URI or FTP server. True if there is no target or the copy succeeded. Blocking. */
     fun writeBack(ctx: Context, f: File): Boolean {
+        // A downloaded copy of an FTP file goes back to its server.
+        FtpFiles.uploadBack(ctx, f)?.let { return it }
         val uri = target(f) ?: return true
         return try {
             val out = try { ctx.contentResolver.openOutputStream(uri, "wt") } catch (e: Exception) { null }
