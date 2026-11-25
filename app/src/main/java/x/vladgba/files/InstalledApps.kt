@@ -31,7 +31,7 @@ object InstalledApps {
     data class Selection(val pkg: String, val folder: File, val apk: Boolean, val internal: Boolean,
                          val external: Boolean, val obb: Boolean)
 
-    fun showBackup(activity: Activity, pkg: String, onBrowseData: (File) -> Unit,
+    fun showBackup(activity: Activity, pkg: String, defaultDir: File, onBrowseData: (File) -> Unit,
                    onBackup: (Selection) -> Unit) {
         val info = try { activity.packageManager.getApplicationInfo(pkg, 0) }
             catch (_: PackageManager.NameNotFoundException) { return }
@@ -47,7 +47,15 @@ object InstalledApps {
             (info.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 || ShizukuFiles.isRoot())
         val destination = EditText(activity).apply {
             setSingleLine()
-            setText(File(Storage.primary(), "Download/pFiles Backups").path)
+            setText(defaultDir.path)
+        }
+        val browse = android.widget.Button(activity).apply {
+            setText(R.string.choose_folder)
+            setOnClickListener {
+                FolderPicker.show(activity, File(destination.text.toString().trim().ifEmpty { defaultDir.path })) {
+                    destination.setText(it.path)
+                }
+            }
         }
         val view = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -56,6 +64,7 @@ object InstalledApps {
                 ViewGroup.LayoutParams.WRAP_CONTENT)) }
             addView(TextView(activity).apply { setText(R.string.backup_destination) })
             addView(destination)
+            addView(browse)
         }
         AlertDialog.Builder(activity)
             .setTitle(info.loadLabel(activity.packageManager))
@@ -75,6 +84,32 @@ object InstalledApps {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    /** Virtual entries of the apps list (dragged, copied or cut) rather than real files. */
+    fun areApps(files: List<File>) = files.isNotEmpty() && files.all { packageFor(it) != null }
+
+    /** Copies the APK of each package (with all split APKs) into its own folder "pkg-stamp" in [target]; returns failures. */
+    fun backupApks(ctx: Context, files: List<File>, target: File): Int {
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+        var failed = 0
+        files.forEachIndexed { i, f ->
+            val pkg = packageFor(f) ?: run { failed++; return@forEachIndexed }
+            OpProgress.report("$pkg (${i + 1}/${files.size})", i * 100 / files.size)
+            val app = try { ctx.packageManager.getApplicationInfo(pkg, 0) }
+                catch (_: PackageManager.NameNotFoundException) { failed++; return@forEachIndexed }
+            val name = "$pkg-$stamp"
+            val dest = File(target, name)
+            val made = when {
+                FtpFiles.isFtp(target) -> FtpFiles.mkdir(ctx, target, name)
+                ShizukuFiles.available() && ShizukuFiles.useFor(dest) -> ShizukuFiles.mkdirs(dest)
+                else -> dest.mkdirs()
+            }
+            if (!made) { failed++; return@forEachIndexed }
+            val apks = (listOf(app.sourceDir) + (app.splitSourceDirs?.toList() ?: emptyList())).map(::File)
+            if (FileOps.transfer(apks, dest, false) != 0) failed++
+        }
+        return failed
     }
 
     /** Returns number of selected components that failed. Runs on the worker thread. */

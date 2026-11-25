@@ -340,7 +340,8 @@ object FtpFiles {
                     val client = getClient(ctx, srcResolved.config.id)
                     if (client == null) { failed++; continue }
                     val targetLocal = FileOps.unique(destDir, f.name)
-                    val ok = downloadFtpRecursive(client, srcResolved.remotePath, f.name, targetLocal)
+                    val isDir = remoteIsDir(client, srcResolved.remotePath)
+                    val ok = downloadFtpRecursive(client, srcResolved.remotePath, f.name, targetLocal, isDir)
                     if (ok && move) {
                         try { client.deleteFile(srcResolved.remotePath) } catch (_: Exception) {}
                     }
@@ -381,32 +382,40 @@ object FtpFiles {
         }
     }
 
-    private fun downloadFtpRecursive(client: FtpClient, remotePath: String, name: String, targetLocal: File): Boolean {
+    /** Folder or file? Asked of the parent's listing: listing a plain file path can return the file itself. */
+    private fun remoteIsDir(client: FtpClient, remotePath: String): Boolean {
+        val trimmed = remotePath.trimEnd('/')
+        if (trimmed.isEmpty()) return true
+        val parent = trimmed.substringBeforeLast('/', "").ifEmpty { "/" }
+        val name = trimmed.substringAfterLast('/')
+        val entry = try { client.listFiles(parent).firstOrNull { it.name == name } } catch (_: Exception) { null }
+        if (entry != null) return entry.isDir
+        val own = try { client.listFiles(trimmed) } catch (_: Exception) { null }
+        return own != null && own.isNotEmpty() && !(own.size == 1 && own[0].name == name && !own[0].isDir)
+    }
+
+    private fun downloadFtpRecursive(client: FtpClient, remotePath: String, name: String, targetLocal: File, isDir: Boolean): Boolean {
         return try {
-            // Check if directory
-            val list = try { client.listFiles(remotePath) } catch (_: Exception) { null }
-            if (list != null && list.isNotEmpty()) {
-                targetLocal.mkdirs()
+            if (isDir) {
+                if (!targetLocal.mkdirs() && !targetLocal.isDirectory) return false
                 var allOk = true
-                for (item in list) {
+                for (item in client.listFiles(remotePath)) {
                     val childRemote = "${remotePath.trimEnd('/')}/${item.name}"
                     val childLocal = File(targetLocal, item.name)
-                    if (item.isDir) {
-                        if (!downloadFtpRecursive(client, childRemote, item.name, childLocal)) allOk = false
-                    } else {
-                        FileOutputStream(childLocal).use {
-                            client.download(childRemote, it) { done ->
-                                OpProgress.report("${item.name}: ${OpProgress.size(done)} / ${OpProgress.size(item.size)}",
-                                    if (item.size > 0) (done * 100 / item.size).toInt() else -1)
-                            }
-                        }
-                    }
+                    if (!downloadFtpRecursive(client, childRemote, item.name, childLocal, item.isDir)) allOk = false
                 }
                 allOk
             } else {
                 targetLocal.parentFile?.mkdirs()
-                FileOutputStream(targetLocal).use {
-                    client.download(remotePath, it) { done -> OpProgress.report("$name: ${OpProgress.size(done)}") }
+                try {
+                    FileOutputStream(targetLocal).use {
+                        client.download(remotePath, it) { done ->
+                            OpProgress.report("$name: ${OpProgress.size(done)}", -1)
+                        }
+                    }
+                } catch (e: Exception) {
+                    targetLocal.delete() // never leave a 0-byte stub behind
+                    throw e
                 }
                 true
             }
