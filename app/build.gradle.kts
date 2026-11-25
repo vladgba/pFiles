@@ -64,7 +64,12 @@ dependencies {
     implementation("net.lingala.zip4j:zip4j:2.11.6")
     implementation("org.apache.sshd:sshd-sftp:2.20.1")
     implementation("org.slf4j:slf4j-nop:2.0.16")
+    // Read-only 7z and RAR4. R8 keeps only the 7z reader and its decoders out of Commons Compress.
+    implementation("org.apache.commons:commons-compress:1.28.0")
+    implementation("org.tukaani:xz:1.12")
+    implementation("com.github.junrar:junrar:7.5.5")
     testImplementation("junit:junit:4.13.2")
     testImplementation("commons-net:commons-net:3.11.1")
+    testImplementation("com.github.mwiede:jsch:2.27.3") // ftpmodule core sources compiled into the tests
     testImplementation("org.json:json:20240303")
 }

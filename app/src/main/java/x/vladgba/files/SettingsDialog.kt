@@ -450,12 +450,10 @@ object SettingsDialog {
         val items = mutableListOf<PickerItem>()
 
         // 1. Built-in modules
-        items.add(PickerItem(activity.getString(R.string.text_editor), "module:text"))
-        items.add(PickerItem(activity.getString(R.string.hex_editor), "module:hex"))
-        items.add(PickerItem(activity.getString(R.string.markdown_viewer), "module:markdown"))
-        items.add(PickerItem(activity.getString(R.string.rtf_preview), "module:rtf"))
-        items.add(PickerItem(activity.getString(R.string.zip_preview), "module:zip"))
-        items.add(PickerItem("File viewer", "module:viewer"))
+        for (m in Openers.all) {
+            if (!Openers.isEnabled(activity, m)) continue
+            items.add(PickerItem(if (m.id == "viewer") "File viewer" else activity.getString(m.title), "module:" + m.id))
+        }
 
         // 2. Compatible external apps
         val apps = Openers.queryAppsForExtension(activity, ext)

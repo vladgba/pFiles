@@ -36,6 +36,7 @@ import kotlin.math.min
 
 /** Built-in text/code editor module. */
 object TextModule : FileOpener {
+    override val id = "text"
     override val title = R.string.text_editor
     override fun canOpen(f: File) = Syntax.isText(f)
     override fun open(a: Activity, f: File) {

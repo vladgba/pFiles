@@ -33,6 +33,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
+import android.content.Intent
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -62,6 +63,7 @@ class MainActivity : Activity(), Panel.Host {
     private val ui = Handler(Looper.getMainLooper())
     override val loader: ExecutorService = Executors.newFixedThreadPool(4)
     private val worker = Executors.newSingleThreadExecutor()
+    private var bookmarks: List<File> = emptyList()
     private var busyCount = 0
     private lateinit var normalIcons: LinearLayout
     private lateinit var selectIcons: LinearLayout
@@ -108,6 +110,10 @@ class MainActivity : Activity(), Panel.Host {
             clip = paths.map(::File)
             clipMove = state.getBoolean("clipMove")
             refreshBar()
+        }
+        if (state == null) {
+            val volumes = Storage.volumes(this)
+            Thread { try { Trash.purgeOld(volumes) } catch (_: Exception) {} }.start()
         }
     }
 
@@ -336,7 +342,11 @@ class MainActivity : Activity(), Panel.Host {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQ_SEARCH || resultCode != RESULT_OK) return
+        if (requestCode == REQ_TRASH) { loadShown(); return } // restored items reappear
+        if ((requestCode != REQ_SEARCH && requestCode != REQ_ANALYZE) || resultCode != RESULT_OK) {
+            if (requestCode == REQ_ANALYZE) loadShown() // files may have been deleted there
+            return
+        }
         val dir = data?.getStringExtra(Openers.EXTRA_PATH)?.let(::File)
             ?.takeIf { ShizukuFiles.isDirectory(it) } ?: return
         active.navigate(dir)
@@ -415,6 +425,7 @@ class MainActivity : Activity(), Panel.Host {
             isChecked = showHidden
         }
         popup.menu.add(0, M_DEFAULT_APPS, 3, R.string.default_apps)
+        popup.menu.add(0, M_MODULES, 3, R.string.modules)
         popup.menu.add(0, M_SETTINGS, 4, R.string.settings)
         popup.menu.add(0, M_ABOUT, 5, R.string.about)
         popup.setOnMenuItemClickListener { item ->
@@ -446,9 +457,15 @@ class MainActivity : Activity(), Panel.Host {
     private fun showStorageMenu(anchor: View) {
         val p = PopupMenu(this, anchor)
         roots.forEachIndexed { i, r -> p.menu.add(0, M_ROOT_BASE + i, i, r.label) }
-        p.menu.add(0, M_FTP_MANAGE, roots.size, R.string.ftp_manage)
-        p.menu.add(0, M_FTP_SERVER, roots.size + 1, R.string.ftp_server)
-        p.menu.add(0, M_SHIZUKU, roots.size + 2, if (ShizukuFiles.available())
+        bookmarks = Places.bookmarks(this)
+        bookmarks.forEachIndexed { i, d -> p.menu.add(0, M_BOOKMARK_BASE + i, roots.size + i, "★ " + d.name.ifEmpty { "/" }) }
+        val n = roots.size + bookmarks.size
+        p.menu.add(0, M_RECENT, n, R.string.recent_files)
+        p.menu.add(0, M_TRASH, n + 1, R.string.trash)
+        p.menu.add(0, M_ANALYZE, n + 2, R.string.analyze_storage)
+        p.menu.add(0, M_FTP_MANAGE, n + 3, R.string.ftp_manage)
+        p.menu.add(0, M_FTP_SERVER, n + 4, R.string.ftp_server)
+        p.menu.add(0, M_SHIZUKU, n + 5, if (ShizukuFiles.available())
             R.string.shizuku_connected else R.string.shizuku_access)
         p.setOnMenuItemClickListener { onMenuItem(it.itemId) }
         p.show()
@@ -503,7 +520,10 @@ class MainActivity : Activity(), Panel.Host {
 
     override fun onOpen(p: Panel, e: Entry) {
         if (InstalledApps.isRoot(p.cwd)) {
-            InstalledApps.showBackup(this, e.file.name,
+            // Backups go to the other panel's folder by default (when it is a real local folder).
+            val second = other.cwd.takeIf { !InstalledApps.isRoot(it) && !FtpFiles.isFtp(it) && !FtpFiles.isRoot(it) }
+                ?: File(Storage.primary(), "Download/pFiles Backups")
+            InstalledApps.showBackup(this, e.file.name, second,
                 { dir ->
                     if (ShizukuFiles.available()) p.navigate(dir)
                     else {
@@ -533,10 +553,12 @@ class MainActivity : Activity(), Panel.Host {
         val menu = PopupMenu(this, anchor)
         menu.menu.add(0, 1, 0, R.string.edit)
         menu.menu.add(0, 2, 1, R.string.copy)
+        menu.menu.add(0, 3, 2, if (Places.isBookmarked(this, dir)) R.string.bookmark_remove else R.string.bookmark_add)
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> editPath(p, dir)
                 2 -> copyPath(dir)
+                3 -> toast(if (Places.toggleBookmark(this, dir)) R.string.bookmark_added else R.string.bookmark_removed)
             }
             true
         }
@@ -591,6 +613,16 @@ class MainActivity : Activity(), Panel.Host {
 
     /** Files dragged from [source] were dropped on [target] (a folder in either panel): ask copy or move. */
     override fun onDrop(source: Panel, files: List<File>, target: File) {
+        if (InstalledApps.areApps(files)) { // apps are not files: dropping them just backs up their APKs
+            if (InstalledApps.isRoot(target)) return
+            AlertDialog.Builder(this)
+                .setTitle(files.singleOrNull()?.name ?: resources.getQuantityString(R.plurals.items, files.size, files.size))
+                .setMessage(getString(R.string.backup_apks_to, target.path))
+                .setPositiveButton(R.string.backup_app) { _, _ -> source.finishSelection(); backupApps(files, target) }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+            return
+        }
         when (FileOps.checkDrop(files, target)) {
             FileOps.DropCheck.NOTHING_TO_DO -> return
             FileOps.DropCheck.INTO_ITSELF -> { toast(R.string.into_itself); return }
@@ -674,6 +706,18 @@ class MainActivity : Activity(), Panel.Host {
             id == M_SHIZUKU -> ShizukuFiles.request(this)
             id == M_DEFAULT_APPS -> SettingsDialog.showDefaultApps(this) { refreshFromSettings() }
             id == M_SETTINGS -> SettingsDialog.showSettings(this) { refreshFromSettings() }
+            id == M_MODULES -> showModules()
+            id == M_RECENT -> showRecents()
+            id == M_TRASH -> @Suppress("DEPRECATION") startActivityForResult(Intent(this, TrashActivity::class.java), REQ_TRASH)
+            id == M_ANALYZE -> {
+                val dir = active.cwd
+                if (FtpFiles.isFtp(dir) || FtpFiles.isRoot(dir) || InstalledApps.isRoot(dir) || ShizukuFiles.useFor(dir)) toast(R.string.analyze_local_only)
+                else @Suppress("DEPRECATION") startActivityForResult(
+                    Intent(this, AnalyzerActivity::class.java).putExtra(Openers.EXTRA_PATH, dir.absolutePath), REQ_ANALYZE)
+            }
+            id >= M_BOOKMARK_BASE -> bookmarks.getOrNull(id - M_BOOKMARK_BASE)?.let {
+                if (it.isDirectory) active.navigate(it) else { Places.toggleBookmark(this, it); toast(R.string.bookmark_gone) }
+            }
             id >= M_ROOT_BASE -> roots.getOrNull(id - M_ROOT_BASE)?.let { active.navigate(it.dir) }
             else -> return false // submenu headers: let the popup open the submenu
         }
@@ -909,12 +953,32 @@ class MainActivity : Activity(), Panel.Host {
     }
 
     private fun confirmDelete(files: List<File>) {
+        // The trash is offered for local files on a storage volume; anything else can only be deleted for good.
+        val volumes = Storage.volumes(this)
+        val canTrash = files.all { !FtpFiles.isFtp(it) && !ShizukuFiles.useFor(it) && Trash.eligible(it, volumes) }
+        val toTrash = android.widget.CheckBox(this).apply {
+            setText(R.string.trash_move)
+            isChecked = prefs.getBoolean("trash", true)
+        }
+        val box = android.widget.FrameLayout(this).apply {
+            setPadding(dp(20), dp(4), dp(20), 0)
+            addView(toTrash)
+        }
         AlertDialog.Builder(this)
             .setMessage(resources.getQuantityString(R.plurals.delete_confirm, files.size, files.size))
+            .apply { if (canTrash) setView(box) }
             .setPositiveButton(R.string.delete) { _, _ ->
                 clip = clip - files.toSet()
                 refreshBar()
-                runOp { FileOps.deleteAll(files) }
+                if (canTrash) prefs.edit().putBoolean("trash", toTrash.isChecked).apply()
+                if (canTrash && toTrash.isChecked) runOp {
+                    var failed = 0
+                    files.forEachIndexed { i, f ->
+                        OpProgress.report("${f.name} (${i + 1}/${files.size})", i * 100 / files.size)
+                        if (!Trash.moveToTrash(f, volumes)) failed++
+                    }
+                    failed
+                } else runOp { FileOps.deleteAll(files) }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
@@ -933,7 +997,13 @@ class MainActivity : Activity(), Panel.Host {
     }
 
     /** Windows-style: one window listing every name clash with size, date and content hash; differences in bold. */
+    private fun backupApps(files: List<File>, dest: File) {
+        if (InstalledApps.isRoot(dest)) { toast(R.string.same_folder); return }
+        runOp { InstalledApps.backupApks(this, files, dest) }
+    }
+
     private fun transferResolving(files: List<File>, dest: File, move: Boolean) {
+        if (InstalledApps.areApps(files)) { backupApps(files, dest); return }
         if (!FileOps.isLocalTransfer(files, dest)) { runOp { FileOps.transfer(files, dest, move) }; return }
         val clashes = FileOps.conflicts(files, dest, move)
         if (clashes.isEmpty()) { runOp { FileOps.transfer(files, dest, move) }; return }
@@ -1133,11 +1203,62 @@ class MainActivity : Activity(), Panel.Host {
             ui.post {
                 if (isFinishing || isDestroyed) return@post
                 busy(false)
+                val local = !FtpFiles.isFtp(f) && !ShizukuFiles.useFor(f) && f.isFile
                 AlertDialog.Builder(this).setTitle(f.name).setMessage(text)
                     .setNeutralButton(R.string.copy_path) { _, _ -> copyPath(f) }
+                    .apply { if (local) setNegativeButton(R.string.checksums) { _, _ -> showChecksums(f) } }
                     .setPositiveButton(android.R.string.ok, null).show()
             }
         }
+    }
+
+    /** CRC32, MD5, SHA-1 and SHA-256 of one file, computed in a single pass with a cancellable progress dialog. */
+    private fun showChecksums(f: File) {
+        var cancelled = false
+        val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100 }
+        val box = android.widget.FrameLayout(this).apply {
+            setPadding(dp(20), dp(12), dp(20), 0)
+            addView(bar, android.widget.FrameLayout.LayoutParams(MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        val wait = AlertDialog.Builder(this).setTitle(R.string.checksums).setView(box)
+            .setNegativeButton(android.R.string.cancel) { _, _ -> cancelled = true }
+            .setOnCancelListener { cancelled = true }
+            .show()
+        Thread {
+            val r = try { Checksums.compute(f, { cancelled }) { pct -> ui.post { bar.progress = pct } } } catch (_: Exception) { null }
+            ui.post {
+                if (isFinishing || isDestroyed) return@post
+                wait.dismiss()
+                if (cancelled) return@post
+                if (r == null) { toast(R.string.failed); return@post }
+                val text = "CRC32\n${r.crc32}\n\nMD5\n${r.md5}\n\nSHA-1\n${r.sha1}\n\nSHA-256\n${r.sha256}"
+                AlertDialog.Builder(this).setTitle(f.name).setMessage(text)
+                    .setNeutralButton(R.string.copy) { _, _ ->
+                        (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                            .setPrimaryClip(android.content.ClipData.newPlainText("checksums", text))
+                    }
+                    .setPositiveButton(android.R.string.ok, null).show()
+            }
+        }.start()
+    }
+
+    /** Settings > Modules: which built-in viewers claim files and appear in "Open with…". */
+    private fun showModules() {
+        val all = Openers.all
+        val on = BooleanArray(all.size) { Openers.isEnabled(this, all[it]) }
+        AlertDialog.Builder(this).setTitle(R.string.modules)
+            .setMultiChoiceItems(all.map { getString(it.title) }.toTypedArray(), on) { _, i, checked -> on[i] = checked }
+            .setPositiveButton(android.R.string.ok) { _, _ -> all.forEachIndexed { i, m -> Openers.setEnabled(this, m, on[i]) } }
+            .setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun showRecents() {
+        val files = Places.recents(this).filter { it.isFile }
+        if (files.isEmpty()) { toast(R.string.recent_none); return }
+        AlertDialog.Builder(this).setTitle(R.string.recent_files)
+            .setItems(files.map { it.name + "\n" + (it.parent ?: "") }.toTypedArray()) { _, i -> Openers.open(this, files[i]) }
+            .setNeutralButton(R.string.recent_clear) { _, _ -> Places.clearRecents(this) }
+            .setNegativeButton(android.R.string.cancel, null).show()
     }
 
     private companion object {
@@ -1169,7 +1290,12 @@ class MainActivity : Activity(), Panel.Host {
         const val M_FTP_MANAGE = 43
         const val M_FTP_SERVER = 44
         const val M_FTP_ADD = 45
+        const val M_MODULES = 46
+        const val M_RECENT = 47
+        const val M_TRASH = 48
+        const val M_ANALYZE = 49
         const val M_ROOT_BASE = 100
+        const val M_BOOKMARK_BASE = 1000
 
         const val A_COPY = 1
         const val A_CUT = 2
@@ -1191,5 +1317,7 @@ class MainActivity : Activity(), Panel.Host {
         const val A_COMPARE = 18
 
         const val REQ_SEARCH = 1
+        const val REQ_ANALYZE = 2
+        const val REQ_TRASH = 3
     }
 }

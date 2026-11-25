@@ -25,6 +25,7 @@ import java.nio.charset.CodingErrorAction
 
 /** Built-in Markdown viewer module supporting Traditional Markdown, GFM, and Markdown Extra (simplemd4php syntax). */
 object MarkdownModule : FileOpener {
+    override val id = "markdown"
     override val title = R.string.markdown_viewer
     override fun canOpen(f: File) = MarkdownOps.isMarkdown(f)
     override fun open(a: Activity, f: File) = Openers.launch(a, MarkdownActivity::class.java, f)

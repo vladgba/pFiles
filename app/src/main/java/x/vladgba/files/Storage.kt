@@ -34,6 +34,10 @@ object Storage {
         return out
     }
 
+    /** Shared storage volumes (internal, SD cards, USB): the places that get a trash folder. */
+    fun volumes(ctx: Context): List<File> = listOf(primary()) +
+        ctx.getExternalFilesDirs(null).drop(1).filterNotNull().map { File(it.path.substringBefore("/Android/data/")) }
+
     fun hasAccess(ctx: Context): Boolean = ShizukuFiles.available() || when {
         Build.VERSION.SDK_INT >= 30 -> Environment.isExternalStorageManager()
         Build.VERSION.SDK_INT >= 23 ->

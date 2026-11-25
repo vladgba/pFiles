@@ -23,6 +23,8 @@ import java.io.File
  * "Open with…" lists built-in modules and compatible external apps.
  */
 interface FileOpener {
+    /** Stable id: stored in "open by extension" preferences and in the enabled-modules setting. */
+    val id: String
     /** Name shown in "Open with…". */
     val title: Int
     /** Claim this file on a plain tap. */
@@ -31,6 +33,7 @@ interface FileOpener {
 }
 
 object ZipModule : FileOpener {
+    override val id = "zip"
     override val title = R.string.zip_preview
     override fun canOpen(f: File) = ArchiveOps.isPreviewable(f)
     override fun open(a: Activity, f: File) = Openers.launch(a, ZipActivity::class.java, f)
@@ -39,19 +42,40 @@ object ZipModule : FileOpener {
 object Openers {
     const val EXTRA_PATH = "x.vladgba.files.PATH"
 
-    val modules: MutableList<FileOpener> = mutableListOf(RtfModule, MarkdownModule, TextModule, ViewerModule, HexModule, ZipModule)
+    /**
+     * Every built-in module, in claim order: on a plain tap the first enabled one whose canOpen matches wins.
+     * Specific formats come before the text editor, which claims anything that looks like text.
+     */
+    val all: List<FileOpener> = listOf(
+        RtfModule, MarkdownModule, ImageModule, MediaModule, PdfModule, SqliteModule,
+        TextModule, ViewerModule, HexModule, ZipModule, TableModule, ApkModule,
+    )
+
+    private var appContext: Context? = null
+
+    /** Enabled modules (Settings > Modules). Before the first screen exists everything is enabled. */
+    val modules: List<FileOpener>
+        get() = appContext?.let { ctx -> all.filter { isEnabled(ctx, it) } } ?: all
+
+    fun isEnabled(ctx: Context, m: FileOpener): Boolean =
+        ctx.getSharedPreferences("pfiles", Context.MODE_PRIVATE).getBoolean("module_on_" + m.id, true)
+
+    fun setEnabled(ctx: Context, m: FileOpener, on: Boolean) {
+        ctx.getSharedPreferences("pfiles", Context.MODE_PRIVATE).edit().putBoolean("module_on_" + m.id, on).apply()
+    }
+
+    fun byId(id: String): FileOpener? = all.firstOrNull { it.id == id }
 
     fun open(a: Activity, f: File) {
+        appContext = a.applicationContext
+        Places.addRecent(a, f)
         val raw = getPreferredRaw(a, extension(f))
         if (raw != null) {
             if (raw.startsWith("module:")) {
-                when (raw.removePrefix("module:")) {
+                when (val id = raw.removePrefix("module:")) {
+                    // The editor is forced even for big files; other modules open the way a tap would.
                     "text" -> { launch(a, EditorActivity::class.java, f); return }
-                    "hex" -> { launch(a, HexActivity::class.java, f); return }
-                    "markdown" -> { launch(a, MarkdownActivity::class.java, f); return }
-                    "rtf" -> { launch(a, RtfActivity::class.java, f); return }
-                    "zip" -> { launch(a, ZipActivity::class.java, f); return }
-                    "viewer" -> { launch(a, ViewerActivity::class.java, f); return }
+                    else -> byId(id)?.takeIf { isEnabled(a, it) }?.let { it.open(a, f); return }
                 }
             } else {
                 val compStr = if (raw.startsWith("component:")) raw.removePrefix("component:") else raw
@@ -66,6 +90,8 @@ object Openers {
 
     /** "Open with…": built-in modules and installed apps; picking an app remembers it by extension. */
     fun chooser(a: Activity, f: File) {
+        appContext = a.applicationContext
+        val modules = modules
         val intent = viewIntent(a, f)
         val apps = a.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
             .filter { it.activityInfo.packageName != a.packageName }
@@ -133,14 +159,9 @@ object Openers {
 
     fun targetLabel(ctx: Context, target: String): String {
         if (target.startsWith("module:")) {
-            return when (target.removePrefix("module:")) {
-                "text" -> ctx.getString(R.string.text_editor)
-                "hex" -> ctx.getString(R.string.hex_editor)
-                "markdown" -> ctx.getString(R.string.markdown_viewer)
-                "rtf" -> ctx.getString(R.string.rtf_preview)
-                "zip" -> ctx.getString(R.string.zip_preview)
+            return when (val id = target.removePrefix("module:")) {
                 "viewer" -> ctx.getString(R.string.view_details)
-                else -> target
+                else -> byId(id)?.let { ctx.getString(it.title) } ?: target
             }
         }
         val compStr = if (target.startsWith("component:")) target.removePrefix("component:") else target

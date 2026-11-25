@@ -339,8 +339,8 @@ class ZipActivity : Activity() {
                 return@Thread
             }
             val loaded = try {
-                ArchiveOps.readTree(file)
-            } catch (_: Exception) {
+                ArchiveOps.readTree(file, password)
+            } catch (_: Throwable) { // also a library class missing on an old Android
                 null
             }
 

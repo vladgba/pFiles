@@ -13,6 +13,7 @@ import android.widget.Toast
 import java.io.File
 
 object RtfModule : FileOpener {
+    override val id = "rtf"
     override val title = R.string.rtf_preview
     override fun canOpen(f: File) = !f.isDirectory && f.extension.equals("rtf", ignoreCase = true)
     override fun open(a: Activity, f: File) = Openers.launch(a, RtfActivity::class.java, f)

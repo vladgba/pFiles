@@ -49,6 +49,7 @@ const val EDIT_MAX_BYTES = 1L shl 20
 
 /** Read-only text viewer module: handles big, binary and non-writable files without loading them into memory. */
 object ViewerModule : FileOpener {
+    override val id = "viewer"
     override val title = R.string.text_viewer
     override fun canOpen(f: File) = false
     override fun open(a: Activity, f: File) = Openers.launch(a, ViewerActivity::class.java, f)

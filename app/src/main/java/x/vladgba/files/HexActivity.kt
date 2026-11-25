@@ -35,6 +35,7 @@ import kotlin.math.min
 
 /** Built-in hex editor module. Never claims files on tap; reached via "Open with…" or from the text editor. */
 object HexModule : FileOpener {
+    override val id = "hex"
     override val title = R.string.hex_editor
     override fun canOpen(f: File) = false
     override fun open(a: Activity, f: File) = Openers.launch(a, HexActivity::class.java, f)

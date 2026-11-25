@@ -341,4 +341,99 @@
     <string name="diff_failed">Compare failed: %1$s</string>
     <string name="diff_text_summary">%1$d changes: %2$d lines removed, %3$d added</string>
     <string name="diff_hex_summary">%1$d changes, %2$d bytes differ (sizes %3$d and %4$d)</string>
+
+    <!-- Modules -->
+    <string name="modules">Modules</string>
+    <string name="open">Open</string>
+    <string name="next">Next</string>
+    <string name="previous">Previous</string>
+    <string name="image_viewer">Image viewer</string>
+    <string name="exif_taken">Taken</string>
+    <string name="exif_camera">Camera</string>
+    <string name="exif_shot">Exposure</string>
+    <string name="exif_location">Location</string>
+    <string name="media_player">Media player</string>
+    <string name="pdf_viewer">PDF viewer</string>
+    <string name="pdf_page_of">Page %1$d of %2$d</string>
+    <string name="pdf_go_to_page">Go to page</string>
+    <string name="zoom_in">Zoom in</string>
+    <string name="zoom_out">Zoom out</string>
+    <string name="table_view">Table view</string>
+    <string name="table_row">Row %1$d</string>
+    <string name="table_range">Rows %1$d–%2$d of %3$d</string>
+    <string name="table_truncated">truncated</string>
+    <plurals name="table_rows">
+        <item quantity="one">%d row</item>
+        <item quantity="other">%d rows</item>
+    </plurals>
+    <string name="sqlite_viewer">SQLite browser</string>
+    <plurals name="sqlite_tables">
+        <item quantity="one">%d table</item>
+        <item quantity="other">%d tables and views</item>
+    </plurals>
+    <string name="apk_inspector">APK info</string>
+    <string name="apk_version">Version</string>
+    <string name="apk_installed">Installed</string>
+    <string name="apk_not_installed">Not installed</string>
+    <string name="apk_same_version">same version</string>
+    <string name="apk_is_update">this file is newer</string>
+    <string name="apk_is_downgrade">this file is older</string>
+    <string name="apk_sdk">Android versions</string>
+    <string name="apk_sdk_value">Minimum API %1$d, target API %2$d</string>
+    <string name="apk_signature">Signing certificate (SHA-256)</string>
+    <string name="apk_components">Components</string>
+    <string name="apk_activities">Activities</string>
+    <string name="apk_services">Services</string>
+    <string name="apk_receivers">Receivers</string>
+    <string name="apk_providers">Providers</string>
+    <string name="apk_permissions">Permissions</string>
+    <string name="apk_none">None</string>
+    <string name="apk_install">Install</string>
+    <string name="checksums">Checksums</string>
+
+    <!-- Trash -->
+    <string name="trash">Trash</string>
+    <string name="trash_move">Move to trash</string>
+    <string name="trash_empty">Trash is empty</string>
+    <string name="trash_empty_action">Empty trash</string>
+    <string name="trash_restore">Restore</string>
+    <string name="trash_delete_forever">Delete permanently</string>
+    <string name="trash_delete_confirm">Delete \"%1$s\" permanently?</string>
+    <plurals name="trash_items">
+        <item quantity="one">%1$d item · removed after %2$d days</item>
+        <item quantity="other">%1$d items · removed after %2$d days</item>
+    </plurals>
+    <plurals name="trash_empty_confirm">
+        <item quantity="one">Delete %d item permanently?</item>
+        <item quantity="other">Delete %d items permanently?</item>
+    </plurals>
+
+    <!-- Bookmarks and recents -->
+    <string name="bookmark_add">Add bookmark</string>
+    <string name="bookmark_remove">Remove bookmark</string>
+    <string name="bookmark_added">Bookmark added</string>
+    <string name="bookmark_removed">Bookmark removed</string>
+    <string name="bookmark_gone">Folder no longer exists; bookmark removed</string>
+    <string name="recent_files">Recent files</string>
+    <string name="recent_none">No recent files</string>
+    <string name="recent_clear">Clear</string>
+
+    <!-- Storage analyzer -->
+    <string name="analyze_storage">Analyze storage</string>
+    <string name="analyze_local_only">Only local folders can be analyzed</string>
+    <string name="analyze_folders">Folders</string>
+    <string name="analyze_largest">Largest files</string>
+    <string name="analyze_duplicates">Duplicates</string>
+    <string name="analyze_scanning">Scanning…</string>
+    <string name="analyze_scanned">Scanning… %1$d files</string>
+    <string name="analyze_hashing">Comparing file contents…</string>
+    <string name="analyze_total">%1$s in %2$d files</string>
+    <string name="analyze_no_duplicates">No duplicate files</string>
+    <string name="analyze_wasted">%1$d groups · %2$s could be freed</string>
+    <string name="analyze_group">%1$d copies · %2$s each</string>
+    <string name="analyze_show_in_folder">Show in folder</string>
+    <string name="analyze_trash_confirm">Move \"%1$s\" to trash?</string>
+    <string name="backup_apks_to">Back up APK files (with splits) to %1$s?</string>
+    <string name="choose_folder">Choose folder…</string>
+    <string name="choose_this_folder">Select</string>
 </resources>
