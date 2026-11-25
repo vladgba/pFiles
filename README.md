@@ -21,7 +21,7 @@ A small, fast file manager for Android with a built-in code editor, a viewer for
 - **Compare** two files as text or hex.
 - **Modules.** Every built-in viewer can be switched off in the menu under Modules.
 - **Open with.** pFiles appears in other apps as **pFiles Editor** and **pFiles Hex**.
-- **FTP and SFTP.** Connect to remote FTP servers to browse, download, and upload files directly in either panel. Also includes an embedded FTP server to share device files with PCs and local devices over Wi-Fi.
+- **FTP and SFTP** through the separate **pFiles FTP** module (a second small APK, `pFiles-FTP-*.apk`, installed next to pFiles). Connect to FTP or SFTP servers to browse, download and upload files in either panel, edit remote files and save them back, and share your own storage with an embedded FTP or SFTP server. Without the module the app still works; only the FTP and SFTP features say it is missing.
 - **No ads, no data collection.**
 
 ## Permissions
@@ -30,17 +30,17 @@ A small, fast file manager for Android with a built-in code editor, a viewer for
 |---|---|---|
 | All files access (Android 11+) / storage | Browsing and editing your files | Yes |
 | Install unknown apps | **Install** button for APK files | Optional |
-| Internet & network state | Connecting to remote FTP servers and local file sharing | Optional |
-| Foreground service | Running embedded FTP server in background | Optional |
+| Internet & network state (FTP module) | Connecting to FTP and SFTP servers and sharing files over Wi-Fi | Optional |
 
 ### Notes
 
+- The FTP module has its own permissions: internet, a foreground service while a file server runs, and **All files access**, which it asks for the first time you start the server.
 - Copy and move run in the background; name clashes become `name (1).ext`, and delete never follows symbolic links.
 - Every editor and viewer feature is described in the [guide](docs/GUIDE.md).
 
 ## Build
 
-Requires Android 5.0+ (API 21). Built with Kotlin on the plain Android framework. A few small libraries cover what the framework lacks: zip4j (encrypted ZIP), Apache Commons Compress with XZ for Java (7z), junrar (RAR), Apache MINA SSHD (SFTP) and Shizuku.
+Requires Android 5.0+ (API 21). Built with Kotlin on the plain Android framework. A few small libraries cover what the framework lacks: zip4j (encrypted ZIP), Apache Commons Compress with XZ for Java (7z), junrar (RAR) and Shizuku. The FTP module adds commons-net (FTP), JSch (SFTP client) and Apache MINA SSHD (SFTP server).
 
 ```bash
 ./gradlew assembleRelease

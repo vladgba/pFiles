@@ -140,6 +140,10 @@ Current modules, in claim order:
 
 To add one, implement `FileOpener`, add its activity to the manifest and add it to `Openers.all`.
 
+### FTP module
+
+All FTP and SFTP code lives in the `ftpmodule` APK (`x.vladgba.files.ftp`): the FTP client (commons-net), the SFTP client (JSch), the embedded FTP server and the SFTP server (Apache MINA SSHD). pFiles binds to it through the hand-written binder `IFtpService` and only the same signing key may call it. Version 2 added `serverStart`, `serverStop` and `serverStatus`: the module runs the servers as its own foreground service and needs its own access to all files, so pFiles opens the module's screen to ask for it. Edited files opened from a server are uploaded back when you save.
+
 ### Other features
 
 - **Trash** (`Trash.kt`, `TrashActivity`): each storage volume has a hidden `.pFilesTrash` folder, so trashing is a rename and never copies data. Items are restored to their original place and purged after 30 days. FTP, Shizuku and app-private files are always deleted for good.
