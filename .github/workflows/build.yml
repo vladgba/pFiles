@@ -29,7 +29,7 @@ concurrency:
 
 env:
   APP_NAME: pFiles
-  APK_DIR: app/build/outputs/apk/release
+  APK_DIR: '*/build/outputs/apk/release'
   TEST_TASKS: "testDebugUnitTest"
   RELEASE_TASK: assembleRelease
 
