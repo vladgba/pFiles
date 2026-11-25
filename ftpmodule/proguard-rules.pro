@@ -3,3 +3,12 @@
 -dontwarn javax.naming.**
 -dontwarn com.jcraft.jsch.**
 -keep class com.jcraft.jsch.** { *; }
+-dontwarn javax.management.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.apache.sshd.**
+-dontwarn org.ietf.jgss.**
+-dontwarn javax.security.**
+-dontwarn java.lang.management.**
+-dontwarn org.slf4j.**
+-keep class org.apache.sshd.** { *; }
+-keep class org.slf4j.** { *; }

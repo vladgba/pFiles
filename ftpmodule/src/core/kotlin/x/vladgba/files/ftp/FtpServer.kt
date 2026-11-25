@@ -1,4 +1,4 @@
-package x.vladgba.files
+package x.vladgba.files.ftp
 
 import java.io.BufferedReader
 import java.io.BufferedWriter

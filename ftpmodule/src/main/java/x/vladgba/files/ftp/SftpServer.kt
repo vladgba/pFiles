@@ -1,4 +1,4 @@
-package x.vladgba.files
+package x.vladgba.files.ftp
 
 import org.apache.sshd.common.file.virtualfs.VirtualFileSystemFactory
 import org.apache.sshd.server.SshServer

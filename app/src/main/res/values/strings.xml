@@ -308,6 +308,8 @@
     <string name="ftp_server_running">FTP server running</string>
     <string name="ftp_server_running_url">FTP server running at %s</string>
     <string name="ftp_server_stopped">FTP server is stopped</string>
+    <string name="ftp_server_needs_access">The FTP module needs access to all files to share them. Allow it on the screen that opens, then start the server again.</string>
+    <string name="ftp_module_old">Update the pFiles FTP module: this version cannot run the file servers.</string>
     <string name="start">Start</string>
     <string name="stop">Stop</string>
     <string name="ftp_module_missing">FTP module is not installed. Install the pFiles FTP APK.</string>

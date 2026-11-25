@@ -2,6 +2,7 @@ package x.vladgba.files
 
 import x.vladgba.files.ftp.FtpCfg
 import x.vladgba.files.ftp.FtpOps
+import x.vladgba.files.ftp.FtpServer
 import x.vladgba.files.ftp.FtpSessions
 
 import org.junit.Assert.assertEquals

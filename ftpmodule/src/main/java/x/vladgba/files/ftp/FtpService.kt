@@ -37,7 +37,7 @@ class FtpService : Service() {
             return super.onTransact(code, data, reply, flags)
         }
 
-        override fun version() = 1
+        override fun version() = IFtpService.VERSION_SERVERS
 
         override fun connect(cfg: String) = run {
             val c = FtpCfg.fromJson(cfg)
@@ -95,6 +95,31 @@ class FtpService : Service() {
         override fun rename(cfg: String, from: String, to: String) = run {
             val r = with(FtpCfg.fromJson(cfg)) { if (sftp) sftpPool.use(this) { SftpOps.rename(it, from, to) } else ftpPool.use(this) { FtpOps.rename(it, from, to) } }
             ok { put("result", r) }
+        }
+
+        override fun serverStart(cfg: String) = run {
+            val c = JSONObject(cfg)
+            if (!FtpServerService.hasAccess(this@FtpService)) {
+                return@run JSONObject().put("ok", false).put("error", "no_access").toString()
+            }
+            val intent = Intent(this@FtpService, FtpServerService::class.java).putExtra(FtpServerService.EXTRA_CFG, c.toString())
+            if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
+            ok()
+        }
+
+        override fun serverStop() = run {
+            startService(Intent(this@FtpService, FtpServerService::class.java).setAction(FtpServerService.ACTION_STOP))
+            ok()
+        }
+
+        override fun serverStatus() = run {
+            ok {
+                put("running", FtpServerService.running)
+                put("sftp", FtpServerService.sftp)
+                put("port", FtpServerService.port)
+                put("ip", FtpServer.getLocalIp() ?: "0.0.0.0")
+                put("access", FtpServerService.hasAccess(this@FtpService))
+            }
         }
 
         override fun disconnect(id: String) {

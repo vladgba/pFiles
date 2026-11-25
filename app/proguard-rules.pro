@@ -2,15 +2,7 @@
 -allowaccessmodification
 -repackageclasses
 -keep class x.vladgba.files.ShizukuFileService { *; }
--dontwarn javax.management.**
 -dontwarn org.bouncycastle.**
--dontwarn org.apache.sshd.**
--dontwarn org.ietf.jgss.**
--dontwarn javax.security.**
--dontwarn java.lang.management.**
--dontwarn org.slf4j.**
--keep class org.apache.sshd.** { *; }
--keep class org.slf4j.** { *; }
 # 7z / RAR readers: optional codecs and desktop-only APIs they reference are never reached on Android.
 -dontwarn org.apache.commons.compress.**
 -dontwarn org.apache.commons.io.**

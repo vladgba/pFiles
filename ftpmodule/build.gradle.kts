@@ -61,4 +61,7 @@ extensions.configure<BasePluginExtension> {
 dependencies {
     implementation("commons-net:commons-net:3.11.1")
     implementation("com.github.mwiede:jsch:2.27.3")
+    // SFTP server (the app has no server code of its own)
+    implementation("org.apache.sshd:sshd-sftp:2.20.1")
+    implementation("org.slf4j:slf4j-nop:2.0.16")
 }

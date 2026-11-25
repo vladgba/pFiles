@@ -25,6 +25,16 @@ interface IFtpService : IInterface {
     /** Removes one file or one empty folder (no recursion), so the caller can report progress. */
     fun deleteOne(cfg: String, path: String): String
 
+    /**
+     * Servers (version 2): starts the FTP or SFTP file server inside the module, as its own foreground service.
+     * [cfg] is JSON: port, user, pass, anon, root, sftp, plus the notification texts title and stop.
+     * Fails with error "no_access" until the module itself has been given access to all files.
+     */
+    fun serverStart(cfg: String): String
+    fun serverStop(): String
+    /** {"ok":true,"running":..,"sftp":..,"port":..,"ip":"..","access":..} */
+    fun serverStatus(): String
+
     abstract class Stub : Binder(), IFtpService {
         init { attachInterface(this, DESCRIPTOR) }
 
@@ -35,7 +45,7 @@ interface IFtpService : IInterface {
                 reply?.writeString(DESCRIPTOR)
                 return true
             }
-            if (code !in T_VERSION..T_DELETE_ONE) return super.onTransact(code, data, reply, flags)
+            if (code !in T_VERSION..T_SERVER_STATUS) return super.onTransact(code, data, reply, flags)
             data.enforceInterface(DESCRIPTOR)
             try {
                 when (code) {
@@ -63,6 +73,9 @@ interface IFtpService : IInterface {
                         reply?.writeNoException(); reply?.writeString(r)
                     }
                     T_DELETE_ONE -> { val r = deleteOne(data.readString()!!, data.readString()!!); reply?.writeNoException(); reply?.writeString(r) }
+                    T_SERVER_START -> { val r = serverStart(data.readString()!!); reply?.writeNoException(); reply?.writeString(r) }
+                    T_SERVER_STOP -> { val r = serverStop(); reply?.writeNoException(); reply?.writeString(r) }
+                    T_SERVER_STATUS -> { val r = serverStatus(); reply?.writeNoException(); reply?.writeString(r) }
                     T_DISCONNECT -> { disconnect(data.readString()!!); reply?.writeNoException() }
                 }
             } catch (e: RuntimeException) {
@@ -106,6 +119,9 @@ interface IFtpService : IInterface {
             call(T_RENAME, { writeString(cfg); writeString(from); writeString(to) }, { readString()!! })
         override fun deleteOne(cfg: String, path: String) =
             call(T_DELETE_ONE, { writeString(cfg); writeString(path) }, { readString()!! })
+        override fun serverStart(cfg: String) = call(T_SERVER_START, { writeString(cfg) }, { readString()!! })
+        override fun serverStop() = call(T_SERVER_STOP, {}, { readString()!! })
+        override fun serverStatus() = call(T_SERVER_STATUS, {}, { readString()!! })
         override fun disconnect(id: String) = call(T_DISCONNECT, { writeString(id) }, {})
     }
 
@@ -121,6 +137,12 @@ interface IFtpService : IInterface {
         private const val T_RENAME = 8
         private const val T_DISCONNECT = 9
         private const val T_DELETE_ONE = 10
+        private const val T_SERVER_START = 11
+        private const val T_SERVER_STOP = 12
+        private const val T_SERVER_STATUS = 13
+
+        /** First version that can run the servers. */
+        const val VERSION_SERVERS = 2
 
         fun asInterface(binder: IBinder?): IFtpService? {
             if (binder == null) return null

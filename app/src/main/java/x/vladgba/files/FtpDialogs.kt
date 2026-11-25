@@ -302,7 +302,21 @@ object FtpDialogs {
         dialog.show()
     }
 
+    /** Asks the FTP module for the server state first (it runs the servers), then shows the dialog. */
     fun showServer(activity: Activity) {
+        Thread {
+            val status = try { FtpServerControl.status(activity) } catch (e: Exception) { e }
+            activity.runOnUiThread {
+                if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                when (status) {
+                    is FtpServerControl.Status -> showServerDialog(activity, status)
+                    else -> Toast.makeText(activity, (status as Exception).message ?: activity.getString(R.string.failed), Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun showServerDialog(activity: Activity, status: FtpServerControl.Status) {
         val dp16 = dp(activity, 16)
         val dp8 = dp(activity, 8)
 
@@ -311,15 +325,15 @@ object FtpDialogs {
             setPadding(dp16, dp8, dp16, dp16)
         }
 
-        val isRunning = FtpServerService.isRunning()
-        val localIp = FtpServer.getLocalIp() ?: "0.0.0.0"
+        val isRunning = status.running
+        val localIp = status.ip
 
         val statusText = TextView(activity).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(if (isRunning) 0xFF43A047.toInt() else activity.getColor(R.color.p_text2))
             text = if (isRunning) {
-                activity.getString(R.string.ftp_server_running_url, "ftp://$localIp:2121")
+                activity.getString(R.string.ftp_server_running_url, (if (status.sftp) "sftp://" else "ftp://") + "$localIp:${status.port}")
             } else {
                 activity.getString(R.string.ftp_server_stopped)
             }
@@ -383,8 +397,12 @@ object FtpDialogs {
 
         if (isRunning) {
             builder.setPositiveButton(R.string.stop) { _, _ ->
-                FtpServerService.stop(activity)
-                Toast.makeText(activity, R.string.ftp_server_stopped, Toast.LENGTH_SHORT).show()
+                Thread {
+                    val ok = try { FtpServerControl.stop(activity); true } catch (_: Exception) { false }
+                    activity.runOnUiThread {
+                        Toast.makeText(activity, if (ok) R.string.ftp_server_stopped else R.string.failed, Toast.LENGTH_SHORT).show()
+                    }
+                }.start()
             }
         } else {
             builder.setPositiveButton(R.string.start) { _, _ ->
@@ -397,10 +415,22 @@ object FtpDialogs {
                     Toast.makeText(activity, R.string.ftp_server_sftp_needs_login, Toast.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
-                FtpServerService.start(activity, port, user, pass, anon, sftp = sftp)
-                val ip = FtpServer.getLocalIp() ?: "0.0.0.0"
-                val url = (if (sftp) "sftp://" else "ftp://") + "$ip:$port"
-                Toast.makeText(activity, activity.getString(R.string.ftp_server_running_url, url), Toast.LENGTH_LONG).show()
+                Thread {
+                    val failure = try {
+                        FtpServerControl.start(activity, port, user, pass, anon, sftp)
+                        null
+                    } catch (e: Exception) { e }
+                    activity.runOnUiThread {
+                        if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                        if (failure == null) {
+                            val url = (if (sftp) "sftp://" else "ftp://") + "${status.ip}:$port"
+                            Toast.makeText(activity, activity.getString(R.string.ftp_server_running_url, url), Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(activity, failure.message ?: activity.getString(R.string.failed), Toast.LENGTH_LONG).show()
+                            if ((failure as? FtpServerControl.Failure)?.needsAccess == true) FtpServerControl.requestAccess(activity)
+                        }
+                    }
+                }.start()
             }
         }
         builder.setNegativeButton(android.R.string.cancel, null)
